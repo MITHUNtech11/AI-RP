@@ -22,6 +22,8 @@ from services.converter import (
 )
 from services.azure_vision import extract_resume_json_multi_page, extract_resume_from_text
 from services.logger import log_processing
+from services.gemini import generate_text
+from typing import Dict
 
 app = FastAPI(
     title="Resume Parser API",
@@ -565,6 +567,27 @@ async def parse_resume_txt(
                 "processing_time": processing_time
             }
         )
+
+
+    @app.post("/generate")
+    async def generate_text_endpoint(
+        payload: Dict[str, str],
+        api_key: str = Depends(verify_api_key)
+    ):
+        """Simple endpoint to proxy prompts to Gemini/Generative API.
+
+        Expects JSON: { "prompt": "..." }
+        Returns the raw JSON response from the configured GEMINI endpoint.
+        """
+        prompt = payload.get("prompt")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Missing 'prompt' in request body")
+
+        try:
+            resp = generate_text(prompt)
+            return {"status": "success", "data": resp}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

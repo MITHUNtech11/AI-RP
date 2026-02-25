@@ -1,13 +1,13 @@
 """
-Azure OpenAI Vision Integration
-Supports multi-page document processing
+Generative extraction integration (Gemini proxy)
+Supports multi-page document processing. This module previously used AzureOpenAI;
+it now proxies text-generation requests through the `services.gemini` wrapper.
 """
 
 import base64
-from openai import AzureOpenAI
 import json
-from utils.ssl_config import get_http_client_insecure
-from config.settings import AZURE_OPENAI_API_KEY, AZURE_ENDPOINT, AZURE_API_VERSION, AZURE_DEPLOYMENT_NAME
+from services.gemini import generate_text
+from config.settings import GEMINI_API_KEY
 
 
 def extract_resume_json_multi_page(png_bytes_list: list) -> dict:
@@ -31,17 +31,9 @@ def extract_resume_json_multi_page(png_bytes_list: list) -> dict:
 
 def _extract_from_single_page(png_bytes: bytes, page_num: int) -> dict:
     """Extract data from single PNG page"""
-    
-    client = AzureOpenAI(
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version=AZURE_API_VERSION,
-        azure_endpoint=AZURE_ENDPOINT,
-        http_client=get_http_client_insecure()
-    )
-    
     # Encode PNG to base64
     base64_image = base64.b64encode(png_bytes).decode('utf-8')
-    
+
     system_prompt = """You are an expert resume parser. Extract ALL information and return ONLY valid JSON:
 
 {
@@ -105,35 +97,36 @@ CRITICAL RULES:
 4. Ignore page headers like '----- PAGE X -----'
 5. Return ONLY valid JSON"""
     
+    # Build a prompt that includes the base64 image as data URI. Note: many LLM
+    # endpoints do not natively support image understanding via base64 in text;
+    # for best OCR results consider integrating Google Cloud Vision or Tesseract.
+    user_text = f"Extract all resume information from page {page_num}. The page image is provided as a base64 data URI below. Return ONLY valid JSON matching the schema."\
+                f"\n\nDATA_URI:\ndata:image/png;base64,{base64_image}"
+
     try:
-        response = client.chat.completions.create(
-            model=AZURE_DEPLOYMENT_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"Extract all resume information from page {page_num}."},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{base64_image}",
-                                "detail": "high"
-                            }
-                        }
-                    ]
-                }
-            ],
-            temperature=0.1,
-            max_tokens=4000,
-            response_format={"type": "json_object"}
-        )
-        
-        result_json = json.loads(response.choices[0].message.content)
-        return result_json
-    
+        resp = generate_text(system_prompt + "\n\n" + user_text, temperature=0.1, max_tokens=4000)
+        # The wrapper returns parsed JSON from the external API; attempt to extract
+        # text response candidate. Adjust based on your Gemini response shape.
+        if isinstance(resp, dict):
+            # Many providers put text in resp['choices'][0]['text'] or similar.
+            text_candidate = None
+            if 'choices' in resp and isinstance(resp['choices'], list) and resp['choices']:
+                text_candidate = resp['choices'][0].get('text') or resp['choices'][0].get('message', {}).get('content')
+            else:
+                # fallback to top-level 'output' or 'content'
+                text_candidate = resp.get('output') or resp.get('content')
+
+            if text_candidate:
+                try:
+                    result_json = json.loads(text_candidate)
+                    return result_json
+                except Exception:
+                    # Return wrapper response as-is if it isn't JSON
+                    return {"raw": resp}
+
+        return {"raw": resp}
     except Exception as e:
-        raise Exception(f"Azure API error on page {page_num}: {e}")
+        raise Exception(f"Generative API error on page {page_num}: {e}")
 
 
 def _merge_resume_data(results_list: list) -> dict:
@@ -235,13 +228,7 @@ def extract_resume_from_text(text_content: str) -> dict:
     Returns:
         dict: Structured resume data matching your existing schema
     """
-    client = AzureOpenAI(
-        api_key=AZURE_OPENAI_API_KEY,
-        api_version=AZURE_API_VERSION,
-        azure_endpoint=AZURE_ENDPOINT,
-        http_client=get_http_client_insecure()
-    )
-    
+    # Use the Gemini wrapper to generate structured JSON from text
     system_prompt = """You are an expert resume parser. Extract ALL information from the text and return ONLY valid JSON:
 
 {
@@ -305,19 +292,20 @@ CRITICAL RULES:
 4. Return ONLY valid JSON"""
 
     try:
-        response = client.chat.completions.create(
-            model=AZURE_DEPLOYMENT_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Extract all resume information from this text:\n\n{text_content}"}
-            ],
-            temperature=0.1,
-            max_tokens=4000,
-            response_format={"type": "json_object"}
-        )
-        
-        result_json = json.loads(response.choices[0].message.content)
-        
+        resp = generate_text(system_prompt + "\n\n" + f"Extract all resume information from this text:\n\n{text_content}", temperature=0.1, max_tokens=4000)
+        # Attempt to find text output
+        text_candidate = None
+        if isinstance(resp, dict):
+            if 'choices' in resp and isinstance(resp['choices'], list) and resp['choices']:
+                text_candidate = resp['choices'][0].get('text') or resp['choices'][0].get('message', {}).get('content')
+            else:
+                text_candidate = resp.get('output') or resp.get('content')
+
+        if text_candidate:
+            result_json = json.loads(text_candidate)
+        else:
+            # If the wrapper returned raw text
+            result_json = resp if isinstance(resp, dict) else json.loads(str(resp))
         # Apply same fallback logic as image processing
         if not result_json.get('name') and result_json.get('first_name') and result_json.get('last_name'):
             result_json['name'] = f"{result_json['first_name']} {result_json['last_name']}"
@@ -345,4 +333,4 @@ CRITICAL RULES:
         return result_json
         
     except Exception as e:
-        raise Exception(f"Azure API error processing text: {e}")
+        raise Exception(f"Generative API error processing text: {e}")

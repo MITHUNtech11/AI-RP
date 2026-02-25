@@ -1,6 +1,6 @@
 # AI Resume Parser
 
-A comprehensive AI-powered resume parsing system that converts resumes from various formats (PDF, DOCX, images, text) into structured JSON data using Azure Computer Vision and OpenAI's GPT models. The system provides both a FastAPI backend for programmatic access and a Streamlit web interface for easy file uploads and result visualization.
+A comprehensive AI-powered resume parsing system that converts resumes from various formats (PDF, DOCX, images, text) into structured JSON data using OCR and large language models. The system provides both a FastAPI backend for programmatic access and a Streamlit web interface for easy file uploads and result visualization.
 
 ## Table of Contents
 
@@ -37,7 +37,7 @@ Key capabilities:
 
 ### Core Functionality
 - **Multi-format Support**: Processes PDF, DOCX, images (JPG, PNG, BMP, TIFF), and text files
-- **Intelligent Parsing**: Uses Azure Computer Vision for OCR and OpenAI GPT for structured extraction
+-- **Intelligent Parsing**: Uses OCR (image-to-text) and a generative model (Gemini or similar) for structured extraction
 - **Batch Processing**: Handle multiple resumes in a single ZIP upload
 - **Real-time Results**: Fast processing with detailed timing information
 - **Error Handling**: Comprehensive error reporting and fallback mechanisms
@@ -73,7 +73,7 @@ The system follows a modular architecture with clear separation of concerns:
 ├── models/                # Data models and schemas
 │   └── schemas.py        # Pydantic models for request/response validation
 ├── services/              # Core business logic
-│   ├── azure_vision.py   # Azure Computer Vision integration
+│   ├── azure_vision.py   # Generative extraction integration (uses Gemini proxy). Consider renaming when switching OCR provider
 │   ├── converter.py      # File format conversion utilities
 │   └── logger.py         # Logging and monitoring
 ├── utils/                 # Utility functions
@@ -85,7 +85,7 @@ The system follows a modular architecture with clear separation of concerns:
 1. **File Upload**: User uploads resume file via API or web interface
 2. **Type Detection**: System determines file type and routes to appropriate handler
 3. **Preprocessing**: Convert binary files to images/text as needed
-4. **AI Processing**: Use Azure Vision for OCR, OpenAI for structured extraction
+4. **AI Processing**: Use OCR (e.g., Google Cloud Vision or Tesseract) for image-to-text, and Gemini (or another generative model) for structured extraction
 5. **Validation**: Validate extracted data against Pydantic schemas
 6. **Response**: Return structured JSON with processing metadata
 
@@ -98,14 +98,15 @@ The system follows a modular architecture with clear separation of concerns:
   - Poppler (for PDF processing on Linux)
   - LibreOffice (optional, for enhanced DOCX support)
 
-### Azure Setup
-1. Create an Azure Computer Vision resource
-2. Note the endpoint URL and API key
-3. Ensure sufficient API quota for your usage
+### Generative Model & OCR Setup
 
-### OpenAI Setup
-1. Obtain an OpenAI API key
-2. Ensure access to GPT models (GPT-4 recommended for best results)
+1. If you plan to use a hosted generative model (Gemini/Vertex AI or other), obtain the API key and endpoint and put them in your `.env` as shown in `config/settings.py` (e.g., `GEMINI_API_KEY` and `GEMINI_ENDPOINT`).
+
+2. For OCR (image → text) choose one of:
+  - Google Cloud Vision API (recommended for high-quality OCR)
+  - Tesseract (open-source, local) — requires installing `tesseract-ocr` on the host
+
+3. Configure the relevant credentials (Cloud Vision key or ensure Tesseract is installed) before running multi-page image parsing.
 
 ## Installation
 
@@ -130,9 +131,9 @@ The system follows a modular architecture with clear separation of concerns:
    ```
 
 4. **Verify installation**:
-   ```bash
-   python -c "import fastapi, streamlit, azure, openai; print('All dependencies installed')"
-   ```
+  ```bash
+  python -c "import fastapi, streamlit; print('All dependencies installed')"
+  ```
 
 ## Configuration
 
@@ -141,12 +142,13 @@ The system follows a modular architecture with clear separation of concerns:
 Create a `.env` file in the project root or set environment variables:
 
 ```bash
-# Azure Computer Vision
-AZURE_CV_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
-AZURE_CV_KEY=your-azure-api-key
+# Generative model (Gemini or similar)
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta2/models/your-model:generate
 
-# OpenAI
-OPENAI_API_KEY=your-openai-api-key
+# OCR configuration (choose one approach)
+# If using Google Cloud Vision, set the credentials accordingly or enable the API
+# If using local Tesseract, install tesseract-ocr on the host
 
 # Application Settings
 REQUIRE_AUTH=true
@@ -501,17 +503,11 @@ If no LICENSE file exists, please add one before distributing the software.
 
 ### Common Issues
 
-#### Azure Authentication Errors
+#### Authentication / API Errors
 ```
-Error: Authentication failed for Azure Computer Vision
+Error: Authentication failed when calling external AI or OCR services
 ```
-**Solution**: Verify your `AZURE_CV_ENDPOINT` and `AZURE_CV_KEY` are correct and have sufficient permissions.
-
-#### OpenAI API Errors
-```
-Error: Invalid API key or insufficient credits
-```
-**Solution**: Check your OpenAI API key and ensure your account has available credits.
+**Solution**: Verify your configured keys and endpoints (e.g., `GEMINI_API_KEY`, `GEMINI_ENDPOINT`, or your OCR provider credentials). Ensure the services are enabled and have sufficient quota.
 
 #### File Processing Failures
 ```
@@ -527,7 +523,7 @@ Error: File too large
 
 ### Performance Issues
 
-- **Slow processing**: Check Azure/OpenAI API latency
+- **Slow processing**: Check generative/OCR API latency (Gemini, Cloud Vision, etc.)
 - **Memory usage**: Monitor system resources during batch processing
 - **Timeout errors**: Increase timeout values in configuration
 
