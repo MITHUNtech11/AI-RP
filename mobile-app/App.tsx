@@ -114,37 +114,88 @@ function AppInner() {
   }, []);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>AI Resume Parser (Mobile)</Text>
-
-      <Text style={styles.label}>Backend URL</Text>
-      <TextInput style={styles.input} value={apiBase} onChangeText={setApiBase} placeholder="http://localhost:8000" />
-
-      <Text style={styles.label}>API Key (optional)</Text>
-      <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="X-API-Key" />
-
-      <View style={styles.row}>
-        <View style={styles.buttonContainer}>
-          <Button title="Pick Image" onPress={pickImage} />
-        </View>
-        <View style={styles.buttonContainer}>
-          <Button title="Pick Document" onPress={pickDocument} />
-        </View>
+    <View style={styles.mainContainer}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>📄 Resume Parser</Text>
+        <Text style={styles.headerSubtitle}>Extract structured data from resumes</Text>
       </View>
 
-      <Text style={styles.meta}>Selected: {fileName || 'None'}</Text>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={true}>
+        {/* Configuration Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Configuration</Text>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Backend URL</Text>
+            <TextInput 
+              style={styles.input} 
+              value={apiBase} 
+              onChangeText={setApiBase} 
+              placeholder="http://localhost:8000"
+              placeholderTextColor="#999"
+            />
+          </View>
 
-      <View style={styles.uploadButtonContainer}>
-        <Button title={loading ? 'Uploading...' : 'Upload & Parse'} onPress={uploadFile} disabled={loading} />
-      </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>API Key (optional)</Text>
+            <TextInput 
+              style={styles.input} 
+              value={apiKey} 
+              onChangeText={setApiKey} 
+              placeholder="X-API-Key"
+              placeholderTextColor="#999"
+              secureTextEntry
+            />
+          </View>
+        </View>
 
-      {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
+        {/* File Selection Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Select File</Text>
+          
+          <View style={styles.buttonRow}>
+            <View style={styles.buttonContainer}>
+              <Button title="📷 Pick Image" onPress={pickImage} color="#0066cc" />
+            </View>
+            <View style={styles.buttonContainer}>
+              <Button title="📄 Pick Document" onPress={pickDocument} color="#0066cc" />
+            </View>
+          </View>
 
-      <Text style={styles.resultTitle}>Result</Text>
-      <Text style={styles.result}>{result || 'No result yet'}</Text>
+          <View style={styles.selectedFileBox}>
+            <Text style={styles.selectedFileLabel}>Selected File:</Text>
+            <Text style={styles.selectedFileName}>{fileName || 'None selected'}</Text>
+          </View>
+        </View>
+
+        {/* Upload Section */}
+        <View style={styles.section}>
+          <View style={styles.uploadButtonContainer}>
+            <Button 
+              title={loading ? '⏳ Processing...' : '🚀 Upload & Parse'} 
+              onPress={uploadFile} 
+              disabled={loading}
+              color={loading ? '#999' : '#ff6600'}
+            />
+          </View>
+          {loading && <ActivityIndicator size="large" color="#0066cc" style={{ marginTop: 16 }} />}
+        </View>
+
+        {/* Results Section */}
+        {result && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Parse Results</Text>
+            <View style={styles.resultBox}>
+              <ScrollView nestedScrollEnabled={true}>
+                <Text style={styles.resultText}>{result}</Text>
+              </ScrollView>
+            </View>
+          </View>
+        )}
+      </ScrollView>
 
       <StatusBar style="auto" />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -157,15 +208,138 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff', flexGrow: 1 },
-  title: { fontSize: 20, fontWeight: '700', marginBottom: 12 },
-  label: { marginTop: 8, fontWeight: '600' },
-  input: { borderWidth: 1, borderColor: '#ccc', padding: 8, borderRadius: 6, marginTop: 6, marginBottom: 8 },
-  row: { flexDirection: 'row', marginTop: 12, alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  spacer: { width: 12 },
-  buttonContainer: { flex: 1 },
-  uploadButtonContainer: { marginTop: 12, marginBottom: 12 },
-  meta: { marginTop: 8, color: '#666' },
-  resultTitle: { marginTop: 20, fontWeight: '700' },
-  result: { marginTop: 8, fontFamily: 'monospace', padding: 10, backgroundColor: '#f5f5f5', borderRadius: 4 }
+  // Main Container Layout
+  mainContainer: { 
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
+  },
+
+  // Header
+  header: { 
+    backgroundColor: '#0066cc', 
+    paddingTop: 40, 
+    paddingBottom: 32, 
+    paddingHorizontal: 20
+  },
+  headerTitle: { 
+    fontSize: 28, 
+    fontWeight: '800', 
+    color: '#fff',
+    marginBottom: 8
+  },
+  headerSubtitle: { 
+    fontSize: 14, 
+    color: '#e0e8ff',
+    lineHeight: 20
+  },
+
+  // Content Scroll Area
+  content: { 
+    flex: 1 
+  },
+  contentContainer: { 
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    paddingBottom: 40
+  },
+
+  // Section Styling
+  section: { 
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2
+  },
+  sectionTitle: { 
+    fontSize: 16, 
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 16,
+    borderBottomWidth: 2,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 12
+  },
+
+  // Form Elements
+  formGroup: { 
+    marginBottom: 16 
+  },
+  label: { 
+    fontSize: 13, 
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8
+  },
+  input: { 
+    borderWidth: 1, 
+    borderColor: '#ddd',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 14,
+    color: '#1a1a1a',
+    height: 44
+  },
+
+  // Button Layouts
+  buttonRow: { 
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16
+  },
+  buttonContainer: { 
+    flex: 1,
+    overflow: 'hidden',
+    borderRadius: 8
+  },
+
+  // Selected File Display
+  selectedFileBox: {
+    backgroundColor: '#f0f8ff',
+    borderLeftWidth: 4,
+    borderLeftColor: '#0066cc',
+    padding: 12,
+    borderRadius: 6,
+    marginTop: 4
+  },
+  selectedFileLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 4
+  },
+  selectedFileName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0066cc',
+    marginTop: 4
+  },
+
+  // Upload Button
+  uploadButtonContainer: { 
+    overflow: 'hidden',
+    borderRadius: 8,
+    marginBottom: 12
+  },
+
+  // Results
+  resultBox: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    maxHeight: 400,
+    borderWidth: 1,
+    borderColor: '#e0e0e0'
+  },
+  resultText: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: '#1a1a1a',
+    lineHeight: 16
+  }
 });
