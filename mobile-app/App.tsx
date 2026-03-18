@@ -53,10 +53,10 @@ function AppInner() {
       return;
     }
 
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
     if (!res.cancelled) {
-      setFileUri(res.uri);
-      setFileName(res.uri.split('/').pop() || 'image.jpg');
+      setFileUri(res.assets?.[0].uri || '');
+      setFileName(res.assets?.[0].uri?.split('/').pop() || 'image.jpg');
       setFileType('image/jpeg');
     }
   };
@@ -124,14 +124,19 @@ function AppInner() {
       <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="X-API-Key" />
 
       <View style={styles.row}>
-        <Button title="Pick Image" onPress={pickImage} />
-        <View style={styles.spacer} />
-        <Button title="Pick Document" onPress={pickDocument} />
+        <View style={styles.buttonContainer}>
+          <Button title="Pick Image" onPress={pickImage} />
+        </View>
+        <View style={styles.buttonContainer}>
+          <Button title="Pick Document" onPress={pickDocument} />
+        </View>
       </View>
 
       <Text style={styles.meta}>Selected: {fileName || 'None'}</Text>
 
-      <Button title={loading ? 'Uploading...' : 'Upload & Parse'} onPress={uploadFile} disabled={loading} />
+      <View style={styles.uploadButtonContainer}>
+        <Button title={loading ? 'Uploading...' : 'Upload & Parse'} onPress={uploadFile} disabled={loading} />
+      </View>
 
       {loading && <ActivityIndicator style={{ marginTop: 12 }} />}
 
@@ -152,13 +157,15 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff', minHeight: '100%' },
+  container: { padding: 20, backgroundColor: '#fff', flexGrow: 1 },
   title: { fontSize: 20, fontWeight: '700', marginBottom: 12 },
   label: { marginTop: 8, fontWeight: '600' },
-  input: { borderWidth: 1, borderColor: '#ccc', padding: 8, borderRadius: 6, marginTop: 6 },
-  row: { flexDirection: 'row', marginTop: 12, alignItems: 'center' },
+  input: { borderWidth: 1, borderColor: '#ccc', padding: 8, borderRadius: 6, marginTop: 6, marginBottom: 8 },
+  row: { flexDirection: 'row', marginTop: 12, alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   spacer: { width: 12 },
+  buttonContainer: { flex: 1 },
+  uploadButtonContainer: { marginTop: 12, marginBottom: 12 },
   meta: { marginTop: 8, color: '#666' },
   resultTitle: { marginTop: 20, fontWeight: '700' },
-  result: { marginTop: 8, fontFamily: 'monospace' }
+  result: { marginTop: 8, fontFamily: 'monospace', padding: 10, backgroundColor: '#f5f5f5', borderRadius: 4 }
 });

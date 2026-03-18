@@ -6,9 +6,11 @@ Support for multi-page documents
 import os
 import tempfile
 import zipfile
+import logging
 from pathlib import Path
 import docx2pdf
 from io import BytesIO
+from docx import Document
 
 
 def convert_to_png_list(file_content: bytes, filename: str) -> list:
