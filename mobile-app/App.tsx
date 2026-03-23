@@ -15,11 +15,9 @@ import * as DocumentPicker from 'expo-document-picker';
 
 const { width } = Dimensions.get('window');
 
-// IMPORTANT: Backend must be running with: uvicorn backend.main:app --host 0.0.0.0 --port 8000
-// Use the WiFi adapter IP (not the virtual hotspot IP)
-// WiFi IP: 172.23.21.78 (connected to saveetha.net)
-// Make sure phone is on the SAME WiFi network
-const BACKEND_URL = 'http://172.23.21.78:8000';
+// IMPORTANT: Backend must be running with: python main.py
+// Development mode - using localhost
+const BACKEND_URL = 'http://127.0.0.1:8000';
 
 // Beautiful color scheme
 const COLORS = {
@@ -71,8 +69,15 @@ function AppInner() {
     });
 
     if (!res.cancelled && res.assets) {
-      setFileUri(res.assets[0].uri);
-      setFileName(res.assets[0].uri?.split('/').pop() || 'image.jpg');
+      const asset = res.assets[0];
+      // Extract filename or use a default with extension
+      let filename = asset.filename || asset.uri?.split('/').pop() || 'image.jpg';
+      // Ensure filename has an extension
+      if (!filename.includes('.')) {
+        filename += '.jpg';
+      }
+      setFileUri(asset.uri);
+      setFileName(filename);
       setError('');
     }
   };
@@ -106,13 +111,32 @@ function AppInner() {
 
     try {
       const form = new FormData();
-      const fileType = fileUri.endsWith('.pdf')
-        ? 'application/pdf'
-        : fileUri.endsWith('.docx')
-          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-          : 'image/jpeg';
+      
+      let filename = fileName;
+      let fileType = 'image/jpeg';
+
+      // Detect file type and ensure filename has extension
+      if (fileUri.endsWith('.pdf')) {
+        fileType = 'application/pdf';
+        filename = filename.endsWith('.pdf') ? filename : filename + '.pdf';
+      } else if (fileUri.endsWith('.docx')) {
+        fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        filename = filename.endsWith('.docx') ? filename : filename + '.docx';
+      } else if (fileUri.endsWith('.jpg') || fileUri.endsWith('.jpeg')) {
+        fileType = 'image/jpeg';
+        filename = filename.endsWith('.jpg') ? filename : (filename.endsWith('.jpeg') ? filename : filename + '.jpg');
+      } else if (fileUri.endsWith('.png')) {
+        fileType = 'image/png';
+        filename = filename.endsWith('.png') ? filename : filename + '.png';
+      } else {
+        // Default to jpg if no extension detected
+        if (!filename.includes('.')) {
+          filename += '.jpg';
+        }
+      }
 
       console.log('File Type:', fileType);
+      console.log('Final Filename:', filename);
 
       // Handle both mobile (Expo) and web (browser) file uploads
       if (fileUri.startsWith('blob:')) {
@@ -120,7 +144,7 @@ function AppInner() {
         console.log('Detected blob URL (web version)');
         const response = await fetch(fileUri);
         const blob = await response.blob();
-        form.append('file', blob, fileName);
+        form.append('file', blob, filename);
         console.log('Blob appended to FormData');
       } else {
         // Mobile/Expo: file:// URL - use direct append
@@ -128,7 +152,7 @@ function AppInner() {
         // @ts-ignore
         form.append('file', {
           uri: fileUri,
-          name: fileName,
+          name: filename,
           type: fileType,
         });
         console.log('File appended to FormData');

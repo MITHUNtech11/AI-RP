@@ -1,52 +1,107 @@
-# ⚡ Quick Start Guide
+# 🚀 Quick Start Guide
 
-Get your 3-tier resume parser running in **5 minutes**.
+## ⏱️ Get Running in 5 Minutes
 
-## Prerequisites
-
-- Python 3.8+ ([download](https://www.python.org))
-- Node.js 16+ ([download](https://nodejs.org))
-- Git
-
-## 1️⃣ Setup Backend
-
-### Install dependencies
+### 1️⃣ Terminal 1: Start Backend
 
 ```bash
 cd backend
-pip install -r requirements.txt
-```
-
-**Takes ~2 minutes** (downloading PDF/image libraries)
-
-### Configure environment
-
-Create `.env` file in project root:
-
-```env
-# API Authentication
-API_KEY=dev-key-12345
-REQUIRE_AUTH=false
-
-# Gemini API (Google Generative AI)
-GEMINI_API_KEY=your-gemini-api-key
-GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta2/models/gemini-pro-vision:generateContent
-
-# File limits
-MAX_FILE_SIZE_MB=50
-```
-
-> **Get Gemini API Key:** https://makersuite.google.com/app/apikeys
-
-### Start backend server
-
-```bash
 python main.py
 ```
 
-✅ Server running at: **http://localhost:8000**
+✅ You should see: `Uvicorn running on http://0.0.0.0:8000`
 
-Visit **http://localhost:8000/docs** for interactive API explorer
+---
+
+### 2️⃣ Find Your WiFi IP Address
+
+**Windows:**
+```bash
+ipconfig
+# Look for "IPv4 Address" under your WiFi adapter
+# Example: 192.168.1.100
+```
+
+**Mac/Linux:**
+```bash
+ifconfig
+# Look for "inet" under en0 or eth0
+# Example: 192.168.1.100
+```
+
+---
+
+### 3️⃣ Update Mobile App with Your IP
+
+**File to edit**: `mobile-app/src/services/api.ts`
+
+**Find line ~20:**
+```typescript
+return 'http://192.168.1.100:8000';  // Replace with YOUR IP
+```
+
+---
+
+### 4️⃣ Terminal 2: Start Mobile App
+
+```bash
+cd mobile-app
+npm start
+```
+
+You'll see:
+```
+> Local:   http://localhost:19000
+> Scan QR code with Expo Go app
+```
+
+---
+
+### 5️⃣ Run the App
+
+**Option A - Android Emulator:**
+```
+Press 'a' in the terminal
+```
+
+**Option B - iOS Simulator:**
+```
+Press 'i' in the terminal
+```
+
+**Option C - Physical Device:**
+```
+Download Expo Go app, scan QR code
+```
+
+---
+
+## ✅ Verify Connection
+
+1. Open app
+2. **Go to Settings page**
+3. Should show **"Backend Connected" ✅**
+
+---
+
+## 🎯 Next Steps
+
+- **Detailed Setup**: Read `COMPLETE_SETUP.md`
+- **Mobile Docs**: Read `mobile-app/SETUP.md`
+- **Backend Docs**: Read `backend/README.md`
+
+---
+
+## 🔥 Pro Tips
+
+- **Phone must be on SAME WiFi** as your computer
+- **Don't use localhost** - use your machine's actual IP
+- **Backend must be running** before opening the app
+- **Check backend logs** for debugging (in terminal where `python main.py` runs)
+
+---
+
+**Ready to deploy to Play Store?** See `COMPLETE_SETUP.md` → "Play Store Deployment"
 
 ---
 
