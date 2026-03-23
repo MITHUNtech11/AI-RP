@@ -23,7 +23,7 @@ TCP    0.0.0.0:8000           LISTENING       18412
 .env File:
 ├── API_KEY=test1
 ├── REQUIRE_AUTH=False          ✅ Auth DISABLED (public access)
-├── GEMINI_API_KEY=AIzaSyDifTzRRmVM_XHGeEcNjHadAXbyv2CQ4g0  ✅ Configured
+├── GEMINI_API_KEY=  ✅ Configured
 └── Model: gemini-2.5-flash (default)
 ```
 

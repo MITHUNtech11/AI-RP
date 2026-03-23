@@ -18,28 +18,8 @@ export function Upload() {
       setIsReading(true);
       setUploadProgress(0);
 
-      // Simulate upload progress
-      const interval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 100);
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setUploadProgress(100);
-        clearInterval(interval);
-        
-        // Delay to show 100% completion
-        setTimeout(() => {
-          navigate('/processing', { state: { fileData: reader.result, fileName: file.name } });
-        }, 800);
-      };
-      reader.readAsDataURL(file);
+      // Navigate to processing with the file object
+      navigate('/processing', { state: { file: file, fileName: file.name } });
     }
   };
 

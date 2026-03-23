@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useResume } from '../context/ResumeContext';
-import { parseResumeWithGemini } from '../services/gemini';
+import { parseResumeViaBackend } from '../services/api';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { TopBar } from '../components/layout/TopBar';
@@ -9,38 +9,31 @@ import { TopBar } from '../components/layout/TopBar';
 export function Processing() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { addResume, apiKey } = useResume();
+  const { addResume } = useResume();
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState('Initializing...');
 
-  const fileData = location.state?.fileData;
+  const file = location.state?.file;
   const fileName = location.state?.fileName;
 
   useEffect(() => {
-    if (!fileData) {
+    if (!file) {
       navigate('/upload');
       return;
     }
 
     const processFile = async () => {
       try {
-        setStatus('Analyzing document structure...');
-        // Extract mime type and base64 data
-        const matches = fileData.match(/^data:(.+);base64,(.+)$/);
-        if (!matches) throw new Error("Invalid file data");
+        setStatus('Connecting to backend...');
         
-        const mimeType = matches[1];
-        const base64 = matches[2];
-        
-        // Use environment key or user provided key
-        const key = apiKey || process.env.GEMINI_API_KEY;
-        
-        if (!key) {
-          throw new Error("API Key missing. Please add it in Settings.");
-        }
-
-        setStatus('Extracting information with Gemini AI...');
-        const parsedData = await parseResumeWithGemini(base64, key, mimeType);
+        setStatus('Uploading resume...');
+        const parsedData = await parseResumeViaBackend(file, (progress) => {
+          if (progress < 50) {
+            setStatus(`Uploading... ${Math.round(progress)}%`);
+          } else {
+            setStatus('Processing with AI...');
+          }
+        });
         
         setStatus('Finalizing...');
         parsedData.fileName = fileName || "Scanned Resume";
@@ -54,7 +47,7 @@ export function Processing() {
     };
 
     processFile();
-  }, [fileData, fileName, navigate, addResume, apiKey]);
+  }, [file, fileName, navigate, addResume]);
 
   if (error) {
     return (

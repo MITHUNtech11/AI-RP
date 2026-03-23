@@ -1,13 +1,23 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useResume } from '../context/ResumeContext';
-import { Key, Trash2, Shield } from 'lucide-react';
+import { Server, Trash2, Shield, CheckCircle, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { TopBar } from '../components/layout/TopBar';
+import { getBackendUrl, testBackendConnection } from '../services/api';
 
 export function Settings() {
-  const { apiKey, setApiKey } = useResume();
+  const { setApiKey } = useResume();
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+  const [backendUrl, setBackendUrl] = useState(getBackendUrl());
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      const isConnected = await testBackendConnection();
+      setBackendConnected(isConnected);
+    };
+    checkConnection();
+  }, []);
 
   const handleClearData = () => {
     if (confirm('Are you sure? This will delete all your saved resumes locally.')) {
@@ -23,23 +33,37 @@ export function Settings() {
       <div className="p-4 max-w-md mx-auto space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">API Configuration</CardTitle>
+            <CardTitle className="text-lg">Backend Status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2 text-sm font-medium">
-                <Key size={16} />
-                <label>Gemini API Key</label>
+            <div className="space-y-3">
+              <div className="flex items-start space-x-3 p-3 bg-[var(--color-secondary)] rounded-lg">
+                {backendConnected === null ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="h-2 w-2 bg-yellow-500 rounded-full animate-pulse mt-1" />
+                    <span className="text-sm">Checking connection...</span>
+                  </div>
+                ) : backendConnected ? (
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle size={20} className="text-green-500 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium">Backend Connected</p>
+                      <p className="text-xs text-[var(--color-muted-foreground)]">{backendUrl}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium">Backend Unreachable</p>
+                      <p className="text-xs text-[var(--color-muted-foreground)]">Make sure the backend server is running</p>
+                    </div>
+                  </div>
+                )}
               </div>
-              <Input 
-                type="password" 
-                placeholder="Enter your Gemini API Key" 
-                value={apiKey || ''}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <p className="text-xs text-[var(--color-muted-foreground)]">
-                Leave empty to use the default system key (if available).
-                Your key is stored locally in your browser.
+              <p className="text-xs text-[var(--color-muted-foreground)] flex items-start space-x-2">
+                <Server size={14} className="mt-0.5 flex-shrink-0" />
+                <span>All resume processing is handled by your backend server</span>
               </p>
             </div>
           </CardContent>
@@ -50,9 +74,9 @@ export function Settings() {
             <CardTitle className="text-lg">Data & Privacy</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center space-x-2 text-[var(--color-muted-foreground)] text-sm">
-              <Shield size={16} />
-              <p>All processing happens locally or via direct API calls to Google. No data is sent to our servers.</p>
+            <div className="flex items-start space-x-2 text-[var(--color-muted-foreground)] text-sm">
+              <Shield size={16} className="mt-0.5 flex-shrink-0" />
+              <p>Resumes are uploaded to your backend for processing. Local copies are stored in your browser.</p>
             </div>
             
             <Button 
@@ -66,7 +90,7 @@ export function Settings() {
         </Card>
         
         <div className="text-center text-xs text-[var(--color-muted-foreground)] pt-4">
-          <p>AI Resume Parser v1.0.0</p>
+          <p>AI Resume Parser v2.0.0 (Backend Mode)</p>
         </div>
       </div>
     </div>
