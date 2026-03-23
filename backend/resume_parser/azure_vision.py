@@ -6,8 +6,91 @@ it now proxies text-generation requests through the `backend.resume_parser.gemin
 
 import base64
 import json
+import re
 from backend.resume_parser.gemini import generate_text
 from backend.config.settings import GEMINI_API_KEY
+
+
+def _extract_json_from_response(response_text: str) -> dict:
+    """
+    Extract JSON from various response formats.
+    Handles:
+    - Plain JSON: {"key": "value"}
+    - Markdown JSON: ```json\n{...}\n```
+    - Markdown JSON: ```\n{...}\n```
+    - Incomplete/truncated JSON
+    
+    Returns parsed dict or raises ValueError if no valid JSON found
+    """
+    response_text = response_text.strip()
+    
+    # Try 1: Direct JSON parsing
+    try:
+        return json.loads(response_text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try 2: Extract from markdown code blocks - more flexible regex
+    # Look for ```json or ``` followed by content and optional closing ```
+    json_match = re.search(r'```(?:json)?\s*\n([\s\S]*?)(?:\n```|$)', response_text, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1).strip()
+        # Try to parse even if incomplete - JSON decoder might handle it
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # If JSON is incomplete, try to fix it by adding closing braces
+            try:
+                # Count open and close braces
+                open_braces = json_str.count('{') - json_str.count('}')
+                open_brackets = json_str.count('[') - json_str.count(']')
+                
+                # Add missing closing characters
+                fixed_json = json_str + '}' * open_braces + ']' * open_brackets
+                return json.loads(fixed_json)
+            except json.JSONDecodeError:
+                pass
+    
+    # Try 3: Look for JSON object pattern - more flexible
+    # Find first { and try to find matching }
+    start_idx = response_text.find('{')
+    if start_idx != -1:
+        # Try to find the end of JSON by counting braces
+        json_str = response_text[start_idx:]
+        open_count = 0
+        end_idx = 0
+        in_string = False
+        escape = False
+        
+        for i, char in enumerate(json_str):
+            if escape:
+                escape = False
+                continue
+            if char == '\\':
+                escape = True
+                continue
+            if char == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == '{':
+                open_count += 1
+            elif char == '}':
+                open_count -= 1
+                if open_count == 0:
+                    end_idx = i + 1
+                    break
+        
+        if end_idx > 0:
+            json_str = json_str[:end_idx]
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+    
+    # If all else fails, raise error with response preview
+    raise ValueError(f"Could not extract valid JSON from response: {response_text[:300]}")
 
 
 def extract_resume_json_multi_page(png_bytes_list: list) -> dict:
@@ -95,7 +178,7 @@ CRITICAL RULES:
 2. Use null for missing fields
 3. Use empty arrays [] for empty lists
 4. Ignore page headers like '----- PAGE X -----'
-5. Return ONLY valid JSON"""
+5. Return ONLY valid JSON object - DO NOT wrap in markdown code blocks, DO NOT use ```json, just return the raw JSON"""
     
     # Build a prompt that includes the base64 image as data URI. Note: many LLM
     # endpoints do not natively support image understanding via base64 in text;
@@ -104,27 +187,15 @@ CRITICAL RULES:
                 f"\n\nDATA_URI:\ndata:image/png;base64,{base64_image}"
 
     try:
-        resp = generate_text(system_prompt + "\n\n" + user_text, temperature=0.1, max_tokens=4000)
-        # The wrapper returns parsed JSON from the external API; attempt to extract
-        # text response candidate. Adjust based on your Gemini response shape.
-        if isinstance(resp, dict):
-            # Many providers put text in resp['choices'][0]['text'] or similar.
-            text_candidate = None
-            if 'choices' in resp and isinstance(resp['choices'], list) and resp['choices']:
-                text_candidate = resp['choices'][0].get('text') or resp['choices'][0].get('message', {}).get('content')
-            else:
-                # fallback to top-level 'output' or 'content'
-                text_candidate = resp.get('output') or resp.get('content')
-
-            if text_candidate:
-                try:
-                    result_json = json.loads(text_candidate)
-                    return result_json
-                except Exception:
-                    # Return wrapper response as-is if it isn't JSON
-                    return {"raw": resp}
-
-        return {"raw": resp}
+        resp = generate_text(system_prompt + "\n\n" + user_text, temperature=0.1, max_tokens=8000)
+        
+        # Extract JSON from response (handles markdown wrapping)
+        try:
+            result_json = _extract_json_from_response(resp)
+            return result_json
+        except ValueError as e:
+            raise Exception(f"Failed to parse JSON response from page {page_num}: {str(e)}")
+            
     except Exception as e:
         raise Exception(f"Generative API error on page {page_num}: {e}")
 
@@ -289,23 +360,17 @@ CRITICAL RULES:
 1. Extract ALL information from the text
 2. Use null for missing fields
 3. Use empty arrays [] for empty lists
-4. Return ONLY valid JSON"""
+4. Return ONLY valid JSON object - DO NOT wrap in markdown code blocks, DO NOT use ```json, just return the raw JSON"""
 
     try:
-        resp = generate_text(system_prompt + "\n\n" + f"Extract all resume information from this text:\n\n{text_content}", temperature=0.1, max_tokens=4000)
-        # Attempt to find text output
-        text_candidate = None
-        if isinstance(resp, dict):
-            if 'choices' in resp and isinstance(resp['choices'], list) and resp['choices']:
-                text_candidate = resp['choices'][0].get('text') or resp['choices'][0].get('message', {}).get('content')
-            else:
-                text_candidate = resp.get('output') or resp.get('content')
-
-        if text_candidate:
-            result_json = json.loads(text_candidate)
-        else:
-            # If the wrapper returned raw text
-            result_json = resp if isinstance(resp, dict) else json.loads(str(resp))
+        resp = generate_text(system_prompt + "\n\n" + f"Extract all resume information from this text:\n\n{text_content}", temperature=0.1, max_tokens=8000)
+        
+        # Extract JSON from response (handles markdown wrapping)
+        try:
+            result_json = _extract_json_from_response(resp)
+        except ValueError as e:
+            raise Exception(f"Failed to parse JSON response: {str(e)}")
+        
         # Apply same fallback logic as image processing
         if not result_json.get('name') and result_json.get('first_name') and result_json.get('last_name'):
             result_json['name'] = f"{result_json['first_name']} {result_json['last_name']}"

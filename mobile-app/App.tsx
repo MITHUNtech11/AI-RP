@@ -1,345 +1,893 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Button, TextInput, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
-const DEFAULT_API = 'http://10.0.2.2:8000'; // emulator host; change to your backend URL
+const { width } = Dimensions.get('window');
 
-// Simple error boundary so runtime errors are shown in-app instead of white screen
-class ErrorBoundary extends React.Component<{}, { hasError: boolean; error?: any }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
+// IMPORTANT: Backend must be running with: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+// Use the WiFi adapter IP (not the virtual hotspot IP)
+// WiFi IP: 172.23.21.78 (connected to saveetha.net)
+// Make sure phone is on the SAME WiFi network
+const BACKEND_URL = 'http://172.23.21.78:8000';
 
-  static getDerivedStateFromError(error: any) {
-    return { hasError: true, error };
-  }
+// Beautiful color scheme
+const COLORS = {
+  primary: '#6366F1', // Indigo
+  secondary: '#EC4899', // Pink
+  success: '#10B981', // Green
+  warning: '#F59E0B', // Amber
+  background: '#F8FAFC',
+  card: '#FFFFFF',
+  text: '#1E293B',
+  textLight: '#64748B',
+  border: '#E2E8F0',
+};
 
-  componentDidCatch(error: any, info: any) {
-    // You could log this to your backend
-    // console.error(error, info);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={{ flex: 1, padding: 20, justifyContent: 'center' }}>
-          <Text style={{ fontWeight: '700', marginBottom: 8 }}>Unexpected error</Text>
-          <Text>{String(this.state.error)}</Text>
-          <Text style={{ marginTop: 12, color: '#666' }}>Reload the app or check the Metro/console logs for details.</Text>
-        </View>
-      );
-    }
-
-    return this.props.children as any;
-  }
+interface ResumeData {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  summary?: string;
+  skills?: string[];
+  employment?: Array<{ company_name?: string; designation?: string }>;
+  qualifications?: Array<{ qualification?: string; college_or_school?: string }>;
+  languages?: Array<{ language?: string }>;
+  address?: { city?: string; state?: string; country?: string };
+  [key: string]: any;
 }
 
+
 function AppInner() {
-  const [apiBase, setApiBase] = useState<string>(DEFAULT_API);
-  const [apiKey, setApiKey] = useState<string>('');
   const [fileUri, setFileUri] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [fileType, setFileType] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<string>('');
+  const [resumeData, setResumeData] = useState<ResumeData | null>(null);
+  const [error, setError] = useState<string>('');
+  const [selectedTab, setSelectedTab] = useState<string>('overview');
 
   const pickImage = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission required', 'Media library access is required to pick an image.');
+      Alert.alert('Permission Required', 'Please allow media library access to continue.');
       return;
     }
 
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.9 });
-    if (!res.cancelled) {
-      setFileUri(res.assets?.[0].uri || '');
-      setFileName(res.assets?.[0].uri?.split('/').pop() || 'image.jpg');
-      setFileType('image/jpeg');
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 1,
+    });
+
+    if (!res.cancelled && res.assets) {
+      setFileUri(res.assets[0].uri);
+      setFileName(res.assets[0].uri?.split('/').pop() || 'image.jpg');
+      setError('');
     }
   };
 
   const pickDocument = async () => {
-    const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: false });
+    const res = await DocumentPicker.getDocumentAsync({
+      copyToCacheDirectory: false,
+    });
+
     if (res.type === 'success') {
       setFileUri(res.uri);
       setFileName(res.name || 'file');
-      setFileType(res.mimeType || 'application/octet-stream');
+      setError('');
     }
   };
 
   const uploadFile = async () => {
     if (!fileUri) {
-      Alert.alert('No file', 'Please pick an image or document first.');
+      Alert.alert('No File Selected', 'Please select a resume file first.');
       return;
     }
 
     setLoading(true);
-    setResult('');
+    setError('');
+    setResumeData(null);
+
+    console.log('=== UPLOAD START ===');
+    console.log('File URI:', fileUri);
+    console.log('File Name:', fileName);
+    console.log('Backend URL:', BACKEND_URL);
 
     try {
       const form = new FormData();
-      // In Expo, form file: { uri, name, type }
-      // @ts-ignore
-      form.append('file', { uri: fileUri, name: fileName, type: fileType });
+      const fileType = fileUri.endsWith('.pdf')
+        ? 'application/pdf'
+        : fileUri.endsWith('.docx')
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'image/jpeg';
 
-      const headers: any = {};
-      if (apiKey) headers['X-API-Key'] = apiKey;
+      console.log('File Type:', fileType);
 
-      const res = await fetch(`${apiBase.replace(/\/$/, '')}/parse_resume`, {
-        method: 'POST',
-        body: form,
-        headers
-      });
-
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(`API ${res.status}: ${txt}`);
+      // Handle both mobile (Expo) and web (browser) file uploads
+      if (fileUri.startsWith('blob:')) {
+        // Web/Browser: blob URL - fetch and convert to File
+        console.log('Detected blob URL (web version)');
+        const response = await fetch(fileUri);
+        const blob = await response.blob();
+        form.append('file', blob, fileName);
+        console.log('Blob appended to FormData');
+      } else {
+        // Mobile/Expo: file:// URL - use direct append
+        console.log('Detected file URL (mobile version)');
+        // @ts-ignore
+        form.append('file', {
+          uri: fileUri,
+          name: fileName,
+          type: fileType,
+        });
+        console.log('File appended to FormData');
       }
 
-      const json = await res.json();
-      setResult(JSON.stringify(json, null, 2));
+      const url = `${BACKEND_URL}/parse`;
+      console.log('Sending request to:', url);
+      console.log('Form data prepared');
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: form,
+      });
+
+      console.log('Response Status:', response.status);
+      console.log('Response OK:', response.ok);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.log('Error Response:', errorData);
+        throw new Error(errorData.detail?.[0]?.msg || errorData.detail?.message || `Error: ${response.status}`);
+      }
+
+      const json = await response.json();
+      console.log('Success Response:', json);
+
+      if (json.status === 'success' && json.data) {
+        setResumeData(json.data);
+        setSelectedTab('overview');
+        Alert.alert('Success', 'Resume parsed successfully!');
+      } else {
+        throw new Error(json.detail?.message || 'Failed to parse resume');
+      }
     } catch (err: any) {
-      setResult(String(err.message || err));
+      console.log('=== ERROR ===');
+      console.log('Error Type:', err.name);
+      console.log('Error Message:', err.message);
+      console.log('Error:', err);
+      
+      setError(err.message || 'An error occurred. Please try again.');
+      Alert.alert('Parse Error', err.message || 'Network error - check console logs');
     } finally {
       setLoading(false);
+      console.log('=== UPLOAD END ===');
     }
   };
-  useEffect(() => {
-    // quick startup log to help debugging
-    // Metro/console logs are visible when running `npx expo start` and opening device debugger
-    console.log('AppInner mounted — apiBase=', apiBase);
-  }, []);
+
+  const handleNewFile = () => {
+    setFileUri(null);
+    setFileName('');
+    setResumeData(null);
+    setError('');
+    setSelectedTab('overview');
+  };
+
+  const testBackendConnection = async () => {
+    console.log('=== TESTING BACKEND CONNECTION ===');
+    try {
+      const url = `${BACKEND_URL}/docs`;
+      console.log('Attempting to reach:', url);
+      
+      const response = await fetch(url);
+      console.log('Response Status:', response.status);
+      console.log('Backend is REACHABLE ✓');
+      Alert.alert('Success', 'Backend is reachable!');
+    } catch (err: any) {
+      console.log('Connection failed:', err.message);
+      Alert.alert('Connection Failed', err.message || 'Cannot reach backend');
+    }
+  };
 
   return (
-    <View style={styles.mainContainer}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📄 Resume Parser</Text>
-        <Text style={styles.headerSubtitle}>Extract structured data from resumes</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerIcon}>📄</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle}>Resume Parser</Text>
+            <Text style={styles.headerSubtitle}>
+              {resumeData ? 'Parsing Complete!' : 'Upload & Extract Data'}
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity 
+          style={styles.testButton}
+          onPress={testBackendConnection}
+        >
+          <Text style={styles.testButtonText}>🔌 Test Connection</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={true}>
-        {/* Configuration Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Configuration</Text>
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Backend URL</Text>
-            <TextInput 
-              style={styles.input} 
-              value={apiBase} 
-              onChangeText={setApiBase} 
-              placeholder="http://localhost:8000"
-              placeholderTextColor="#999"
-            />
-          </View>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {!resumeData ? (
+          // Upload Section
+          <View style={styles.uploadSection}>
+            {/* File Status */}
+            {fileUri && (
+              <View style={[styles.card, styles.fileCard]}>
+                <View style={styles.fileCardHeader}>
+                  <Text style={styles.fileCardTitle}>✅ File Ready</Text>
+                  <TouchableOpacity onPress={handleNewFile}>
+                    <Text style={styles.fileCardChange}>Change</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.fileCardName}>{fileName}</Text>
+              </View>
+            )}
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>API Key (optional)</Text>
-            <TextInput 
-              style={styles.input} 
-              value={apiKey} 
-              onChangeText={setApiKey} 
-              placeholder="X-API-Key"
-              placeholderTextColor="#999"
-              secureTextEntry
-            />
-          </View>
-        </View>
+            {/* Upload Buttons */}
+            <View style={styles.uploadButtonsContainer}>
+              <TouchableOpacity
+                style={[styles.uploadButton, styles.imageButton]}
+                onPress={pickImage}
+              >
+                <Text style={styles.uploadButtonIcon}>📷</Text>
+                <Text style={styles.uploadButtonText}>Pick Image</Text>
+              </TouchableOpacity>
 
-        {/* File Selection Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Select File</Text>
-          
-          <View style={styles.buttonRow}>
-            <View style={styles.buttonContainer}>
-              <Button title="📷 Pick Image" onPress={pickImage} color="#0066cc" />
+              <TouchableOpacity
+                style={[styles.uploadButton, styles.documentButton]}
+                onPress={pickDocument}
+              >
+                <Text style={styles.uploadButtonIcon}>📄</Text>
+                <Text style={styles.uploadButtonText}>Pick Document</Text>
+              </TouchableOpacity>
             </View>
-            <View style={styles.buttonContainer}>
-              <Button title="📄 Pick Document" onPress={pickDocument} color="#0066cc" />
+
+            {/* Parse Button */}
+            <TouchableOpacity
+              style={[styles.parseButton, !fileUri && styles.parseButtonDisabled]}
+              onPress={uploadFile}
+              disabled={!fileUri || loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.parseButtonIcon}>🚀</Text>
+                  <Text style={styles.parseButtonText}>
+                    {loading ? 'Processing...' : 'Parse Resume'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {/* Info Cards */}
+            <View style={styles.infoCardsContainer}>
+              <View style={[styles.infoCard, { borderLeftColor: COLORS.primary }]}>
+                <Text style={styles.infoCardEmoji}>⚡</Text>
+                <Text style={styles.infoCardText}>Fast & Accurate</Text>
+              </View>
+              <View style={[styles.infoCard, { borderLeftColor: COLORS.success }]}>
+                <Text style={styles.infoCardEmoji}>🔒</Text>
+                <Text style={styles.infoCardText}>Secure Upload</Text>
+              </View>
+              <View style={[styles.infoCard, { borderLeftColor: COLORS.secondary }]}>
+                <Text style={styles.infoCardEmoji}>✨</Text>
+                <Text style={styles.infoCardText}>Smart Analysis</Text>
+              </View>
             </View>
           </View>
-
-          <View style={styles.selectedFileBox}>
-            <Text style={styles.selectedFileLabel}>Selected File:</Text>
-            <Text style={styles.selectedFileName}>{fileName || 'None selected'}</Text>
-          </View>
-        </View>
-
-        {/* Upload Section */}
-        <View style={styles.section}>
-          <View style={styles.uploadButtonContainer}>
-            <Button 
-              title={loading ? '⏳ Processing...' : '🚀 Upload & Parse'} 
-              onPress={uploadFile} 
-              disabled={loading}
-              color={loading ? '#999' : '#ff6600'}
-            />
-          </View>
-          {loading && <ActivityIndicator size="large" color="#0066cc" style={{ marginTop: 16 }} />}
-        </View>
-
-        {/* Results Section */}
-        {result && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Parse Results</Text>
-            <View style={styles.resultBox}>
-              <ScrollView nestedScrollEnabled={true}>
-                <Text style={styles.resultText}>{result}</Text>
-              </ScrollView>
+        ) : (
+          // Results Section
+          <View style={styles.resultsSection}>
+            {/* Tab Navigation */}
+            <View style={styles.tabsContainer}>
+              {['overview', 'skills', 'education', 'experience'].map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[
+                    styles.tab,
+                    selectedTab === tab && styles.tabActive,
+                  ]}
+                  onPress={() => setSelectedTab(tab)}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      selectedTab === tab && styles.tabTextActive,
+                    ]}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
+
+            {/* Tab Content */}
+            {selectedTab === 'overview' && (
+              <View style={styles.tabContent}>
+                {/* Profile Header */}
+                <View style={styles.profileHeader}>
+                  <View style={styles.profileAvatar}>
+                    <Text style={styles.profileAvatarText}>
+                      {(resumeData.first_name?.[0] || 'U').toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.profileInfo}>
+                    <Text style={styles.profileName}>
+                      {resumeData.name || `${resumeData.first_name} ${resumeData.last_name}`}
+                    </Text>
+                    {resumeData.email && (
+                      <Text style={styles.profileDetail}>📧 {resumeData.email}</Text>
+                    )}
+                    {resumeData.phone && (
+                      <Text style={styles.profileDetail}>📱 {resumeData.phone}</Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Summary */}
+                {resumeData.summary && (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Professional Summary</Text>
+                    <Text style={styles.cardText}>{resumeData.summary}</Text>
+                  </View>
+                )}
+
+                {/* Address */}
+                {resumeData.address && (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Location</Text>
+                    <Text style={styles.cardText}>
+                      {[
+                        resumeData.address.street_address,
+                        resumeData.address.city || resumeData.address.district,
+                        resumeData.address.state,
+                        resumeData.address.country,
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {selectedTab === 'skills' && (
+              <View style={styles.tabContent}>
+                {resumeData.skills && resumeData.skills.length > 0 ? (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Skills</Text>
+                    <View style={styles.skillsGrid}>
+                      {resumeData.skills.map((skill: string, idx: number) => (
+                        <View key={idx} style={styles.skillTag}>
+                          <Text style={styles.skillTagText}>{skill}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No skills found</Text>
+                  </View>
+                )}
+
+                {resumeData.languages && resumeData.languages.length > 0 && (
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Languages</Text>
+                    {resumeData.languages.map((lang: any, idx: number) => (
+                      <View key={idx} style={styles.languageItem}>
+                        <Text style={styles.languageName}>{lang.language}</Text>
+                        <View style={styles.languageProfs}>
+                          {lang.can_read && (
+                            <Text style={styles.languageProf}>📖 Read</Text>
+                          )}
+                          {lang.can_speak && (
+                            <Text style={styles.languageProf}>🎤 Speak</Text>
+                          )}
+                          {lang.can_write && (
+                            <Text style={styles.languageProf}>✍️ Write</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {selectedTab === 'education' && (
+              <View style={styles.tabContent}>
+                {resumeData.qualifications && resumeData.qualifications.length > 0 ? (
+                  resumeData.qualifications.map((qual: any, idx: number) => (
+                    <View key={idx} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <View>
+                          <Text style={styles.cardSubtitle}>{qual.qualification}</Text>
+                          {qual.specialization && (
+                            <Text style={styles.cardMeta}>{qual.specialization}</Text>
+                          )}
+                        </View>
+                        {qual.year_of_completion && (
+                          <Text style={styles.cardYear}>{qual.year_of_completion}</Text>
+                        )}
+                      </View>
+                      <Text style={styles.cardText}>{qual.college_or_school}</Text>
+                      {qual.percentage && (
+                        <Text style={styles.cardMeta}>📊 {qual.percentage}</Text>
+                      )}
+                    </View>
+                  ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No education details found</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {selectedTab === 'experience' && (
+              <View style={styles.tabContent}>
+                {resumeData.employment && resumeData.employment.length > 0 ? (
+                  resumeData.employment.map((job: any, idx: number) => (
+                    <View key={idx} style={styles.card}>
+                      <View style={styles.cardHeader}>
+                        <View>
+                          <Text style={styles.cardSubtitle}>{job.designation}</Text>
+                          <Text style={styles.cardMeta}>{job.company_name}</Text>
+                        </View>
+                        {job.startDate && (
+                          <Text style={styles.cardYear}>
+                            {job.startDate}
+                            {job.endDate ? ` - ${job.endDate}` : ' - Present'}
+                          </Text>
+                        )}
+                      </View>
+                      {job.job_profile && (
+                        <Text style={styles.cardText}>{job.job_profile}</Text>
+                      )}
+                      {job.employment_type && (
+                        <Text style={styles.cardMeta}>💼 {job.employment_type}</Text>
+                      )}
+                    </View>
+                  ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateText}>No work experience found</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
 
-      <StatusBar style="auto" />
+      {/* Action Button at Bottom */}
+      {resumeData && (
+        <View style={styles.bottomAction}>
+          <TouchableOpacity
+            style={styles.newParseButton}
+            onPress={handleNewFile}
+          >
+            <Text style={styles.newParseButtonText}>📄 Parse Another Resume</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
 export default function App() {
-  return (
-    <ErrorBoundary>
-      <AppInner />
-    </ErrorBoundary>
-  );
+  return <AppInner />;
 }
 
 const styles = StyleSheet.create({
-  // Main Container Layout
-  mainContainer: { 
-    flex: 1, 
-    backgroundColor: '#f8f9fa' 
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
   },
 
   // Header
-  header: { 
-    backgroundColor: '#0066cc', 
-    paddingTop: 40, 
-    paddingBottom: 32, 
-    paddingHorizontal: 20
+  header: {
+    backgroundColor: COLORS.primary,
+    paddingTop: 12,
+    paddingBottom: 24,
+    paddingHorizontal: 20,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  headerTitle: { 
-    fontSize: 28, 
-    fontWeight: '800', 
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerIcon: {
+    fontSize: 40,
+    marginRight: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '800',
     color: '#fff',
-    marginBottom: 8
+    marginBottom: 4,
   },
-  headerSubtitle: { 
-    fontSize: 14, 
-    color: '#e0e8ff',
-    lineHeight: 20
+  headerSubtitle: {
+    fontSize: 13,
+    color: '#E0E7FF',
+    opacity: 0.9,
   },
 
-  // Content Scroll Area
-  content: { 
-    flex: 1 
+  testButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginTop: 12,
   },
-  contentContainer: { 
+  testButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
+  // Content
+  content: {
+    flex: 1,
     paddingHorizontal: 16,
     paddingVertical: 20,
-    paddingBottom: 40
   },
 
-  // Section Styling
-  section: { 
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2
-  },
-  sectionTitle: { 
-    fontSize: 16, 
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 16,
-    borderBottomWidth: 2,
-    borderBottomColor: '#f0f0f0',
-    paddingBottom: 12
+  // Upload Section
+  uploadSection: {
+    paddingBottom: 40,
   },
 
-  // Form Elements
-  formGroup: { 
-    marginBottom: 16 
+  fileCard: {
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.success,
+    backgroundColor: '#F0FDF4',
   },
-  label: { 
-    fontSize: 13, 
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8
+  fileCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  input: { 
-    borderWidth: 1, 
-    borderColor: '#ddd',
-    backgroundColor: '#f8f9fa',
-    padding: 12,
-    borderRadius: 8,
+  fileCardTitle: {
     fontSize: 14,
-    color: '#1a1a1a',
-    height: 44
+    fontWeight: '700',
+    color: COLORS.success,
+  },
+  fileCardChange: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  fileCardName: {
+    fontSize: 13,
+    color: COLORS.text,
+    fontWeight: '500',
   },
 
-  // Button Layouts
-  buttonRow: { 
+  uploadButtonsContainer: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 16
+    marginBottom: 16,
   },
-  buttonContainer: { 
+  uploadButton: {
     flex: 1,
-    overflow: 'hidden',
-    borderRadius: 8
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  imageButton: {
+    backgroundColor: '#FEF3C7',
+  },
+  documentButton: {
+    backgroundColor: '#DBEAFE',
+  },
+  uploadButtonIcon: {
+    fontSize: 24,
+    marginBottom: 6,
+  },
+  uploadButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.text,
   },
 
-  // Selected File Display
-  selectedFileBox: {
-    backgroundColor: '#f0f8ff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#0066cc',
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 4
+  parseButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 24,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  selectedFileLabel: {
+  parseButtonDisabled: {
+    backgroundColor: COLORS.border,
+    shadowOpacity: 0.1,
+  },
+  parseButtonIcon: {
+    fontSize: 18,
+  },
+  parseButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+
+  infoCardsContainer: {
+    gap: 10,
+  },
+  infoCard: {
+    backgroundColor: COLORS.card,
+    borderLeftWidth: 4,
+    borderRadius: 10,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  infoCardEmoji: {
+    fontSize: 20,
+  },
+  infoCardText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+
+  // Results Section
+  resultsSection: {
+    paddingBottom: 40,
+  },
+
+  tabsContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  tabActive: {
+    backgroundColor: COLORS.primary,
+  },
+  tabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textLight,
+  },
+  tabTextActive: {
+    color: '#fff',
+  },
+
+  tabContent: {
+    gap: 12,
+  },
+
+  // Profile Header
+  profileHeader: {
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  profileAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarText: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  profileInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  profileDetail: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginTop: 2,
+  },
+
+  // Card
+  card: {
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  cardSubtitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  cardMeta: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginTop: 4,
+  },
+  cardText: {
+    fontSize: 13,
+    color: COLORS.text,
+    lineHeight: 20,
+    marginVertical: 4,
+  },
+  cardYear: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
-    marginBottom: 4
-  },
-  selectedFileName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0066cc',
-    marginTop: 4
+    color: COLORS.primary,
   },
 
-  // Upload Button
-  uploadButtonContainer: { 
-    overflow: 'hidden',
-    borderRadius: 8,
-    marginBottom: 12
+  // Skills
+  skillsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  skillTag: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  skillTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
   },
 
-  // Results
-  resultBox: {
-    backgroundColor: '#f5f5f5',
+  // Languages
+  languageItem: {
+    backgroundColor: '#F1F5F9',
     borderRadius: 8,
     padding: 12,
-    maxHeight: 400,
-    borderWidth: 1,
-    borderColor: '#e0e0e0'
+    marginBottom: 8,
   },
-  resultText: {
-    fontFamily: 'monospace',
-    fontSize: 12,
-    color: '#1a1a1a',
-    lineHeight: 16
-  }
+  languageName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+  languageProfs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  languageProf: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '600',
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+
+  // Empty State
+  emptyState: {
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    fontWeight: '600',
+  },
+
+  // Bottom Action
+  bottomAction: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  newParseButton: {
+    backgroundColor: COLORS.secondary,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: COLORS.secondary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  newParseButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
 });

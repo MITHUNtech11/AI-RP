@@ -65,7 +65,63 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# ============================================
+@app.post("/test-gemini")
+async def test_gemini_api(request_body: dict):
+    """
+    Test endpoint to verify Google AI API key works
+    Accepts any JSON body properties and combines them into a message
+    
+    Example request body:
+    {
+      "additionalProp1": "string",
+      "additionalProp2": "string",
+      "additionalProp3": "string"
+    }
+    """
+    try:
+        # Combine all properties into a message
+        if not request_body:
+            message = "Hello Gemini! Please respond with a short test message."
+        else:
+            message = " ".join([f"{k}: {v}" for k, v in request_body.items()])
+        
+        response = generate_text(message, temperature=0.5, max_tokens=500)
+        return {
+            "status": "success",
+            "request_received": request_body,
+            "combined_message": message,
+            "response": response,
+            "note": "API key is working correctly!"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "request_received": request_body,
+            "error": str(e),
+            "note": "API key test failed"
+        }
+
+@app.get("/test-gemini-get")
+async def test_gemini_api_get():
+    """
+    Simple GET endpoint to test Gemini API without parameters
+    Just sends a predefined test message
+    """
+    try:
+        test_message = "What is AI? Answer in one sentence."
+        response = generate_text(test_message, temperature=0.5, max_tokens=200)
+        return {
+            "status": "success",
+            "test_message": test_message,
+            "response": response,
+            "timestamp": time.time()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "hint": "Check your GEMINI_API_KEY in .env file"
+        }
 # ORCHESTRATOR ENDPOINT (RECOMMENDED)
 # ============================================
 
