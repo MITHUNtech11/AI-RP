@@ -83,14 +83,36 @@ function AppInner() {
   };
 
   const pickDocument = async () => {
-    const res = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: false,
-    });
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: false,
+        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
+      });
 
-    if (res.type === 'success') {
-      setFileUri(res.uri);
-      setFileName(res.name || 'file');
-      setError('');
+      if (res.type === 'success') {
+        let filename = res.name || 'document';
+        const uri = res.uri;
+        
+        // Ensure filename has proper extension
+        if (!filename.includes('.')) {
+          if (uri.endsWith('.pdf')) filename += '.pdf';
+          else if (uri.endsWith('.docx')) filename += '.docx';
+          else if (uri.endsWith('.doc')) filename += '.doc';
+          else if (uri.endsWith('.txt')) filename += '.txt';
+          else filename += '.pdf'; // default
+        }
+        
+        console.log('Document selected:', { filename, uri });
+        setFileUri(uri);
+        setFileName(filename);
+        setError('');
+      } else if (res.type === 'cancel') {
+        console.log('Document picker cancelled');
+      }
+    } catch (err: any) {
+      console.error('Document picker error:', err);
+      Alert.alert('Error', 'Failed to pick document: ' + (err.message || 'Unknown error'));
+      setError('Failed to pick document');
     }
   };
 
@@ -113,25 +135,34 @@ function AppInner() {
       const form = new FormData();
       
       let filename = fileName;
-      let fileType = 'image/jpeg';
+      let fileType = 'application/octet-stream';
 
-      // Detect file type and ensure filename has extension
-      if (fileUri.endsWith('.pdf')) {
+      // Detect file type from filename or URI
+      const uri_lower = fileUri.toLowerCase();
+      const name_lower = filename.toLowerCase();
+
+      if (uri_lower.endsWith('.pdf') || name_lower.endsWith('.pdf')) {
         fileType = 'application/pdf';
-        filename = filename.endsWith('.pdf') ? filename : filename + '.pdf';
-      } else if (fileUri.endsWith('.docx')) {
+        filename = name_lower.endsWith('.pdf') ? filename : filename + '.pdf';
+      } else if (uri_lower.endsWith('.docx') || name_lower.endsWith('.docx')) {
         fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        filename = filename.endsWith('.docx') ? filename : filename + '.docx';
-      } else if (fileUri.endsWith('.jpg') || fileUri.endsWith('.jpeg')) {
+        filename = name_lower.endsWith('.docx') ? filename : filename + '.docx';
+      } else if (uri_lower.endsWith('.doc') || name_lower.endsWith('.doc')) {
+        fileType = 'application/msword';
+        filename = name_lower.endsWith('.doc') ? filename : filename + '.doc';
+      } else if (uri_lower.endsWith('.txt') || name_lower.endsWith('.txt')) {
+        fileType = 'text/plain';
+        filename = name_lower.endsWith('.txt') ? filename : filename + '.txt';
+      } else if (uri_lower.endsWith('.jpg') || uri_lower.endsWith('.jpeg') || name_lower.endsWith('.jpg') || name_lower.endsWith('.jpeg')) {
         fileType = 'image/jpeg';
-        filename = filename.endsWith('.jpg') ? filename : (filename.endsWith('.jpeg') ? filename : filename + '.jpg');
-      } else if (fileUri.endsWith('.png')) {
+        filename = (name_lower.endsWith('.jpg') || name_lower.endsWith('.jpeg')) ? filename : filename + '.jpg';
+      } else if (uri_lower.endsWith('.png') || name_lower.endsWith('.png')) {
         fileType = 'image/png';
-        filename = filename.endsWith('.png') ? filename : filename + '.png';
+        filename = name_lower.endsWith('.png') ? filename : filename + '.png';
       } else {
-        // Default to jpg if no extension detected
+        // Default detection by content
         if (!filename.includes('.')) {
-          filename += '.jpg';
+          filename += '.jpg'; // default to jpg
         }
       }
 
@@ -164,6 +195,9 @@ function AppInner() {
 
       const response = await fetch(url, {
         method: 'POST',
+        headers: {
+          'X-API-Key': 'dev-key-12345', // Add API key header
+        },
         body: form,
       });
 
@@ -173,7 +207,7 @@ function AppInner() {
       if (!response.ok) {
         const errorData = await response.json();
         console.log('Error Response:', errorData);
-        throw new Error(errorData.detail?.[0]?.msg || errorData.detail?.message || `Error: ${response.status}`);
+        throw new Error(errorData.detail?.[0]?.msg || errorData.detail?.message || errorData.detail || `Error: ${response.status}`);
       }
 
       const json = await response.json();
