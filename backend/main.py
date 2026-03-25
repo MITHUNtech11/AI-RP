@@ -27,23 +27,14 @@ from .services.converter import (
 from .resume_parser.azure_vision import extract_resume_json_multi_page, extract_resume_from_text
 from .services.logger import log_processing
 from .resume_parser.gemini import generate_text
-from typing import Dict
+from .resume_parser.jd_parser import parse_job_description
+from .resume_parser.matching_algorithm import rank_candidates as rank_candidates_impl
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Rate Limiting
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.middleware import SlowAPIMiddleware
-from slowapi.errors import RateLimitExceeded
-
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
 
 # Pydantic Models for API validation
 class ParseResponse(BaseModel):
@@ -74,6 +65,53 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
     services: Dict[str, str]
+
+# ============================================
+# Pydantic Models for Recruitment Features
+# ============================================
+
+class ParseJDResponse(BaseModel):
+    status: str
+    data: Dict[str, Any]
+    processing_time: float
+    error: Optional[str] = None
+
+class CandidateScoreBreakdown(BaseModel):
+    skills: float
+    experience: float
+    job_title: float
+    education: float
+
+class CandidateScoreDetails(BaseModel):
+    matched_skills: List[str]
+    missing_skills: List[str]
+    candidate_experience_years: float
+    jd_required_experience_years: int
+    candidate_education: str
+    jd_required_education: str
+    candidate_job_titles: List[str]
+
+class RankingResult(BaseModel):
+    resume_index: int
+    candidate_name: str
+    overall_score: float
+    score_percentage: int
+    scores: CandidateScoreBreakdown
+    details: CandidateScoreDetails
+    reasoning: str
+    error: Optional[str] = None
+
+class RankCandidatesResponse(BaseModel):
+    status: str
+    jd_title: str
+    total_candidates: int
+    results: List[RankingResult]
+    processing_time: float
+    error: Optional[str] = None
+
+class RankCandidatesRequest(BaseModel):
+    jd_data: Dict[str, Any]
+    resume_list: List[Dict[str, Any]]
 
 app = FastAPI(
     title="Resume Parser API",
@@ -203,7 +241,6 @@ async def parse_resume_orchestrator(
 # ============================================
 
 @app.post("/parse_batch", response_model=BatchParseResponse)
-@limiter.limit(RATE_LIMIT_BATCH)
 async def parse_batch(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -362,7 +399,6 @@ async def parse_batch(
 
 @app.post("/parse_resume")
 @app.post("/parse", response_model=ParseResponse)
-@limiter.limit(RATE_LIMIT_PARSE)
 async def parse_resume(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -473,9 +509,211 @@ async def parse_resume(
         )
 
 
+# ============================================
+# RECRUITMENT FEATURES: JD PARSING
+# ============================================
+
+@app.post("/parse_jd", response_model=ParseJDResponse)
+async def parse_job_description_endpoint(
+    text: Optional[str] = None,
+    file: Optional[UploadFile] = File(None),
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Parse a Job Description from text or file (PDF/DOCX/Image)
+    
+    Requires: X-API-Key header with valid API key (if REQUIRE_AUTH=true)
+    
+    Either provide:
+    - text: Raw job description as string, OR
+    - file: Upload PDF/DOCX/Image file of JD
+    
+    Returns: Structured JD data with required skills, experience, title, education, seniority
+    """
+    request_start = time.time()
+    
+    try:
+        jd_data = None
+        
+        if text:
+            # Parse from text input
+            logger.info("Parsing JD from text input...")
+            jd_data = parse_job_description(text, is_text=True)
+        
+        elif file:
+            # Parse from file (PDF/DOCX/Image)
+            logger.info(f"Parsing JD from file: {file.filename}")
+            
+            file_ext = Path(file.filename).suffix.lower()
+            file_content = await file.read()
+            
+            if not file_content:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            
+            # For text files, extract text directly
+            if file_ext in TEXT_EXTENSIONS:
+                # Decode text
+                text_content = None
+                for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'utf-16']:
+                    try:
+                        text_content = file_content.decode(encoding)
+                        break
+                    except (UnicodeDecodeError, UnicodeError):
+                        continue
+                
+                if text_content is None:
+                    raise HTTPException(status_code=400, detail="Cannot decode text file. Unsupported encoding.")
+                
+                jd_data = parse_job_description(text_content, is_text=True)
+            
+            else:
+                # For binary files (PDF/DOCX/Images), convert to images and use Gemini Vision
+                logger.info(f"Converting {file.filename} to images for JD extraction...")
+                
+                png_bytes_list = convert_to_png_list(file_content, file.filename)
+                
+                if not png_bytes_list:
+                    raise HTTPException(status_code=400, detail="Failed to convert file to images")
+                
+                # Use first page/image for JD extraction
+                import base64
+                image_base64 = base64.b64encode(png_bytes_list[0]).decode('utf-8')
+                
+                jd_data = parse_job_description("", is_text=False, image_base64=image_base64)
+        
+        else:
+            raise HTTPException(status_code=400, detail="Provide either 'text' parameter or upload a 'file'")
+        
+        processing_time = time.time() - request_start
+        
+        logger.info(f"✓ JD parsed successfully: {jd_data.get('job_title', 'Unknown')} ({processing_time:.2f}s)")
+        
+        return ParseJDResponse(
+            status="success",
+            data=jd_data,
+            processing_time=processing_time
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        processing_time = time.time() - request_start
+        error_msg = str(e)
+        
+        logger.error(f"Error parsing JD: {error_msg}")
+        logger.error(traceback.format_exc())
+        
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "message": f"Failed to parse JD: {error_msg}",
+                "processing_time": processing_time
+            }
+        )
+
+
+# ============================================
+# RECRUITMENT FEATURES: CANDIDATE RANKING
+# ============================================
+
+@app.post("/rank_candidates", response_model=RankCandidatesResponse)
+async def rank_candidates_endpoint(
+    request_data: RankCandidatesRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Rank candidates against a Job Description
+    
+    Requires: X-API-Key header with valid API key (if REQUIRE_AUTH=true)
+    
+    Input: JSON with jd_data (parsed JD) and resume_list (list of parsed resumes)
+    
+    Returns: Ranked list of candidates with scores and detailed breakdown
+    """
+    request_start = time.time()
+    
+    try:
+        jd_data = request_data.jd_data
+        resume_list = request_data.resume_list
+        
+        if not jd_data:
+            raise HTTPException(status_code=400, detail="Missing JD data")
+        
+        if not resume_list or len(resume_list) == 0:
+            raise HTTPException(status_code=400, detail="Resume list is empty")
+        
+        logger.info(f"🎯 Ranking {len(resume_list)} candidates against JD: {jd_data.get('job_title', 'Unknown')}")
+        
+        # Rank all candidates
+        ranking_results = rank_candidates_impl(resume_list, jd_data, generate_reasoning=True)
+        
+        processing_time = time.time() - request_start
+        
+        logger.info(f"✓ Ranked {len(ranking_results)} candidates ({processing_time:.2f}s)")
+        
+        # Convert results to Pydantic models
+        results_list = []
+        for result in ranking_results:
+            try:
+                ranking_result = RankingResult(
+                    resume_index=result.get("resume_index", 0),
+                    candidate_name=result.get("candidate_name", "Unknown"),
+                    overall_score=result.get("overall_score", 0.0),
+                    score_percentage=result.get("score_percentage", 0),
+                    scores=CandidateScoreBreakdown(**result.get("scores", {})),
+                    details=CandidateScoreDetails(**result.get("details", {})),
+                    reasoning=result.get("reasoning", ""),
+                    error=result.get("error", None)
+                )
+                results_list.append(ranking_result)
+            except Exception as e:
+                logger.warning(f"Error converting result to Pydantic model: {e}")
+                results_list.append(RankingResult(
+                    resume_index=result.get("resume_index", 0),
+                    candidate_name=result.get("candidate_name", "Unknown"),
+                    overall_score=0.0,
+                    score_percentage=0,
+                    scores=CandidateScoreBreakdown(skills=0, experience=0, job_title=0, education=0),
+                    details=CandidateScoreDetails(
+                        matched_skills=[], missing_skills=[], 
+                        candidate_experience_years=0, jd_required_experience_years=0,
+                        candidate_education="Unknown", jd_required_education="Unknown",
+                        candidate_job_titles=[]
+                    ),
+                    reasoning="",
+                    error=str(e)
+                ))
+        
+        return RankCandidatesResponse(
+            status="success",
+            jd_title=jd_data.get("job_title", "Unknown"),
+            total_candidates=len(results_list),
+            results=results_list,
+            processing_time=processing_time
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        processing_time = time.time() - request_start
+        error_msg = str(e)
+        
+        logger.error(f"Error ranking candidates: {error_msg}")
+        logger.error(traceback.format_exc())
+        
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "message": f"Failed to rank candidates: {error_msg}",
+                "processing_time": processing_time
+            }
+        )
+
+
 @app.post("/parse_resume_txt")
 @app.post("/parse_txt", response_model=ParseResponse)
-@limiter.limit(RATE_LIMIT_TEXT)
 async def parse_resume_txt(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)

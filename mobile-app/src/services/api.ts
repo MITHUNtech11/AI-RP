@@ -135,6 +135,139 @@ export const parseResumeViaBackend = async (
   }
 };
 
+/**
+ * Parse a Job Description from text or file
+ * @param input - Either raw JD text or file URI
+ * @param isText - If true, treats input as text; if false, treats as file URI
+ * @param fileName - Original file name (for file input)
+ * @param mimeType - MIME type (for file input)
+ */
+export const parseJobDescriptionViaBackend = async (
+  input: string,
+  isText: boolean = true,
+  fileName?: string,
+  mimeType?: string,
+  onProgress?: (progress: number) => void
+): Promise<any> => {
+  try {
+    if (isText) {
+      // Parse from text input
+      const response = await fetch(`${BACKEND_URL}/parse_jd?text=${encodeURIComponent(input)}`, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': BACKEND_API_KEY,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to parse JD');
+      }
+
+      const result = await response.json();
+      if (result.status === 'success') {
+        return result.data;
+      }
+      throw new Error('Invalid response from server');
+    } else {
+      // Parse from file input
+      const formData = new FormData();
+
+      // Create a blob from file URI
+      const fileResponse = await fetch(input);
+      const blob = await fileResponse.blob();
+
+      formData.append('file', blob, fileName);
+
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percentComplete = (e.loaded / e.total) * 100;
+            onProgress?.(Math.min(percentComplete, 95));
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            try {
+              const result = JSON.parse(xhr.responseText);
+              if (result.status === 'success' && result.data) {
+                onProgress?.(100);
+                resolve(result.data);
+              } else {
+                reject(new Error(result.detail || 'Failed to parse JD'));
+              }
+            } catch (error) {
+              reject(error instanceof Error ? error : new Error('Failed to parse server response'));
+            }
+          } else {
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              reject(new Error(errorResponse.detail || `Server error: ${xhr.status}`));
+            } catch {
+              reject(new Error(`Server error: ${xhr.status}`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error - unable to reach backend server'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload cancelled'));
+        });
+
+        xhr.open('POST', `${BACKEND_URL}/parse_jd`);
+        xhr.setRequestHeader('X-API-Key', BACKEND_API_KEY);
+        xhr.send(formData);
+      });
+    }
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Unknown error occurred');
+  }
+};
+
+/**
+ * Rank candidates against a Job Description
+ * @param jdData - Parsed JD data
+ * @param resumeList - List of parsed resumes
+ */
+export const rankCandidatesViaBackend = async (
+  jdData: any,
+  resumeList: any[]
+): Promise<any> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/rank_candidates`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': BACKEND_API_KEY,
+      },
+      body: JSON.stringify({
+        jd_data: jdData,
+        resume_list: resumeList,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to rank candidates');
+    }
+
+    const result = await response.json();
+    if (result.status === 'success') {
+      return result;
+    }
+    throw new Error('Invalid response from server');
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Unknown error occurred');
+  }
+};
+
 export const testBackendConnection = async (): Promise<boolean> => {
   try {
     const response = await fetch(`${BACKEND_URL}/health`, {
