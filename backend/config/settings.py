@@ -21,5 +21,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 MAX_FILE_SIZE_MB = 50
 ALLOWED_FORMATS = ['.pdf', '.docx', '.doc', '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.jfif']
 
+# Rate Limiting (requests per minute)
+RATE_LIMIT_PARSE = "10/minute"
+RATE_LIMIT_BATCH = "5/minute"
+RATE_LIMIT_TEXT = "10/minute"
+
 # Logging
 LOG_FILE = "processing_log.txt"

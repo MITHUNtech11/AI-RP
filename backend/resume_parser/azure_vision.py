@@ -7,8 +7,8 @@ it now proxies text-generation requests through the `backend.resume_parser.gemin
 import base64
 import json
 import re
-from backend.resume_parser.gemini import generate_text
-from backend.config.settings import GEMINI_API_KEY
+from .gemini import generate_text, generate_content
+from ..config.settings import GEMINI_API_KEY
 
 
 def _extract_json_from_response(response_text: str) -> dict:
@@ -113,91 +113,10 @@ def extract_resume_json_multi_page(png_bytes_list: list) -> dict:
 
 
 def _extract_from_single_page(png_bytes: bytes, page_num: int) -> dict:
-    """Extract data from single PNG page"""
-    # Encode PNG to base64
-    base64_image = base64.b64encode(png_bytes).decode('utf-8')
-
-    system_prompt = """You are an expert resume parser. Extract ALL information and return ONLY valid JSON:
-
-{
-    "first_name": "string or null",
-    "last_name": "string or null",
-    "name": "full name or null",
-    "initial": "single letter or null",
-    "email": "email@example.com or null",
-    "phone": "phone number or null",
-    "date_of_birth": "YYYY-MM-DD or null",
-    "gender": "male or female or null",
-    "marital_status": "single or married or divorced or separated or widowed or null",
-    "nationality": "country or null",
-    "summary": "professional summary or null",
-    "address": {
-        "street_address": "street or null",
-        "taluk": "taluk or null",
-        "district": "district or null",
-        "state": "state or null",
-        "country": "country or null",
-        "pincode": "pincode or null"
-    },
-    "highest_qualification": "degree or null",
-    "skills": ["skill1", "skill2"],
-    "hobbies": ["hobby1", "hobby2"],
-    "languages": [
-        {"language": "language name", "can_read": "yes or no or null", "can_speak": "yes or no or null", "can_write": "yes or no or null"}
-    ],
-    "work_status": "freshers or experienced or null",
-    "employment": [
-        {
-            "company_name": "company or null",
-            "designation": "job title or null",
-            "startDate": "YYYY-MM or null",
-            "endDate": "YYYY-MM or null",
-            "department": "department or null",
-            "job_profile": "job description or null",
-            "employment_type": "full-time or part-time or internship or contract or freelance or null",
-            "current_ctc": "salary or null",
-            "relevant_experience": "experience or null"
-        }
-    ],
-    "qualifications": [
-        {
-            "qualification": "degree name or null",
-            "specialization": "field or null",
-            "university_name": "university or null",
-            "college_or_school": "institution or null",
-            "year_of_completion": "YYYY-MM or null",
-            "percentage": "score or null",
-            "search": "institution name or null",
-            "registration_no": "registration number or null"
-        }
-    ]
-}
-
-CRITICAL RULES:
-1. Extract ALL information visible on THIS PAGE ONLY
-2. Use null for missing fields
-3. Use empty arrays [] for empty lists
-4. Ignore page headers like '----- PAGE X -----'
-5. Return ONLY valid JSON object - DO NOT wrap in markdown code blocks, DO NOT use ```json, just return the raw JSON"""
+    """Extract data from single PNG page using Gemini Vision API"""
     
-    # Build a prompt that includes the base64 image as data URI. Note: many LLM
-    # endpoints do not natively support image understanding via base64 in text;
-    # for best OCR results consider integrating Google Cloud Vision or Tesseract.
-    user_text = f"Extract all resume information from page {page_num}. The page image is provided as a base64 data URI below. Return ONLY valid JSON matching the schema."\
-                f"\n\nDATA_URI:\ndata:image/png;base64,{base64_image}"
-
-    try:
-        resp = generate_text(system_prompt + "\n\n" + user_text, temperature=0.1, max_tokens=8000)
-        
-        # Extract JSON from response (handles markdown wrapping)
-        try:
-            result_json = _extract_json_from_response(resp)
-            return result_json
-        except ValueError as e:
-            raise Exception(f"Failed to parse JSON response from page {page_num}: {str(e)}")
-            
-    except Exception as e:
-        raise Exception(f"Generative API error on page {page_num}: {e}")
+    # Use Gemini Vision to extract and parse resume from image
+    return extract_resume_from_image(png_bytes)
 
 
 def _merge_resume_data(results_list: list) -> dict:
@@ -363,13 +282,24 @@ CRITICAL RULES:
 4. Return ONLY valid JSON object - DO NOT wrap in markdown code blocks, DO NOT use ```json, just return the raw JSON"""
 
     try:
+        # Log the content being sent  
+        content_preview = text_content[:500] if len(text_content) > 500 else text_content
+        print(f"[TEXT EXTRACTION] Sending to Gemini ({len(text_content)} chars)")
+        print(f"[TEXT EXTRACTION] Content preview: {content_preview[:200]}...")
+        
         resp = generate_text(system_prompt + "\n\n" + f"Extract all resume information from this text:\n\n{text_content}", temperature=0.1, max_tokens=8000)
+        
+        print(f"[TEXT EXTRACTION] Gemini response received ({len(resp)} chars)")
         
         # Extract JSON from response (handles markdown wrapping)
         try:
             result_json = _extract_json_from_response(resp)
         except ValueError as e:
+            print(f"[TEXT EXTRACTION] JSON parsing error: {str(e)}")
             raise Exception(f"Failed to parse JSON response: {str(e)}")
+        
+        # Validate that we got actual data, not just defaults
+        print(f"[TEXT EXTRACTION] Extracted data: name={result_json.get('name')}, email={result_json.get('email')}, skills={len(result_json.get('skills', []))}")
         
         # Apply same fallback logic as image processing
         if not result_json.get('name') and result_json.get('first_name') and result_json.get('last_name'):
@@ -395,7 +325,141 @@ CRITICAL RULES:
         result_json.setdefault('employment', [])
         result_json.setdefault('qualifications', [])
         
+        print(f"[TEXT EXTRACTION] Final result: name={result_json.get('name')}")
         return result_json
         
     except Exception as e:
+        print(f"[TEXT EXTRACTION] ERROR: {str(e)}")
         raise Exception(f"Generative API error processing text: {e}")
+
+
+def extract_resume_from_image(image_bytes: bytes) -> dict:
+    """
+    Extract resume data from image using Gemini Vision API
+    Sends image directly to Gemini for OCR and parsing
+    
+    Args:
+        image_bytes: PNG image bytes
+        
+    Returns:
+        dict: Structured resume data matching your existing schema
+    """
+    # Convert image to base64
+    image_b64 = base64.b64encode(image_bytes).decode('utf-8')
+    
+    # Use the same prompt as text extraction but for vision
+    system_prompt = """You are an expert resume parser. Extract ALL information from the resume image and return ONLY valid JSON:
+
+{
+  "first_name": "string or null",
+  "last_name": "string or null",
+  "name": "full name or null",
+  "initial": "single letter or null",
+  "email": "email@example.com or null",
+  "phone": "phone number or null",
+  "date_of_birth": "YYYY-MM-DD or null",
+  "gender": "male or female or null",
+  "marital_status": "single or married or divorced or separated or widowed or null",
+  "nationality": "country or null",
+  "summary": "professional summary or null",
+  "address": {
+    "street_address": "street or null",
+    "taluk": "taluk or null",
+    "district": "district or null",
+    "state": "state or null",
+    "country": "country or null",
+    "pincode": "pincode or null"
+  },
+  "highest_qualification": "degree or null",
+  "skills": ["skill1", "skill2"],
+  "hobbies": ["hobby1", "hobby2"],
+  "languages": [
+    {"language": "language name", "can_read": "yes or no or null", "can_speak": "yes or no or null", "can_write": "yes or no or null"}
+  ],
+  "work_status": "freshers or experienced or null",
+  "employment": [
+    {
+      "company_name": "company or null",
+      "designation": "job title or null",
+      "startDate": "YYYY-MM or null",
+      "endDate": "YYYY-MM or null",
+      "department": "department or null",
+      "job_profile": "job description or null",
+      "employment_type": "full-time or part-time or internship or contract or freelance or null",
+      "current_ctc": "salary or null",
+      "relevant_experience": "experience or null"
+    }
+  ],
+  "qualifications": [
+    {
+      "qualification": "degree name or null",
+      "specialization": "field or null",
+      "university_name": "university or null",
+      "college_or_school": "institution or null",
+      "year_of_completion": "YYYY-MM or null",
+      "percentage": "score or null",
+      "search": "institution name or null",
+      "registration_no": "registration number or null"
+    }
+  ]
+}
+
+CRITICAL RULES:
+1. Extract ALL information from the resume image
+2. Use null for missing fields
+3. Use empty arrays [] for empty lists
+4. Return ONLY valid JSON object - DO NOT wrap in markdown code blocks, DO NOT use ```json, just return the raw JSON"""
+
+    try:
+        print(f"[VISION EXTRACTION] Sending image to Gemini ({len(image_bytes)} bytes)")
+        
+        # Use Gemini Vision API
+        parts = [
+            {"text": system_prompt + "\n\nExtract all resume information from this resume image:"},
+            {"image": image_b64}
+        ]
+        
+        resp = generate_content(parts, temperature=0.1, max_tokens=8000)
+        
+        print(f"[VISION EXTRACTION] Gemini response received ({len(resp)} chars)")
+        
+        # Extract JSON from response (handles markdown wrapping)
+        try:
+            result_json = _extract_json_from_response(resp)
+        except ValueError as e:
+            print(f"[VISION EXTRACTION] JSON parsing error: {str(e)}")
+            raise Exception(f"Failed to parse JSON response: {str(e)}")
+        
+        # Validate that we got actual data, not just defaults
+        print(f"[VISION EXTRACTION] Extracted data: name={result_json.get('name')}, email={result_json.get('email')}, skills={len(result_json.get('skills', []))}")
+        
+        # Apply same fallback logic as text processing
+        if not result_json.get('name') and result_json.get('first_name') and result_json.get('last_name'):
+            result_json['name'] = f"{result_json['first_name']} {result_json['last_name']}"
+        
+        if not result_json.get('initial') and result_json.get('last_name'):
+            result_json['initial'] = result_json['last_name'][0]
+        
+        # Ensure required fields have fallback values
+        if not result_json.get('first_name'):
+            result_json['first_name'] = "Unknown"
+        if not result_json.get('last_name'):
+            result_json['last_name'] = "Unknown"
+        if not result_json.get('name'):
+            result_json['name'] = "Unknown Unknown"
+        if not result_json.get('initial'):
+            result_json['initial'] = "U"
+        
+        # Ensure arrays exist
+        result_json.setdefault('skills', [])
+        result_json.setdefault('hobbies', [])
+        result_json.setdefault('languages', [])
+        result_json.setdefault('employment', [])
+        result_json.setdefault('qualifications', [])
+        
+        print(f"[VISION EXTRACTION] Final result: name={result_json.get('name')}")
+        return result_json
+        
+    except Exception as e:
+        print(f"[VISION EXTRACTION] ERROR: {str(e)}")
+        raise Exception(f"Vision API error processing image: {e}")

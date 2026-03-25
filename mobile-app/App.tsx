@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 
 const { width } = Dimensions.get('window');
 
@@ -47,6 +48,24 @@ interface ResumeData {
   [key: string]: any;
 }
 
+// Helper function to sanitize filename for display
+const sanitizeFilename = (filename: string): string => {
+  if (!filename) return 'Resume';
+  
+  // Remove URL encoding (%20 -> space, etc.)
+  let decoded = decodeURIComponent(filename);
+  
+  // Remove any special characters that aren't safe to display
+  decoded = decoded.replace(/[<>:"|?*]/g, '_');
+  
+  // Limit to reasonable length
+  if (decoded.length > 100) {
+    const ext = decoded.split('.').pop() || 'pdf';
+    decoded = decoded.substring(0, 80) + '...' + ext;
+  }
+  
+  return decoded || 'Resume';
+};
 
 function AppInner() {
   const [fileUri, setFileUri] = useState<string | null>(null);
@@ -68,31 +87,52 @@ function AppInner() {
       quality: 1,
     });
 
-    if (!res.cancelled && res.assets) {
+    if (!res.canceled && res.assets && res.assets.length > 0) {
       const asset = res.assets[0];
       // Extract filename or use a default with extension
-      let filename = asset.filename || asset.uri?.split('/').pop() || 'image.jpg';
+      let filename = asset.fileName || asset.uri?.split('/').pop() || 'image.jpg';
       // Ensure filename has an extension
       if (!filename.includes('.')) {
         filename += '.jpg';
       }
+      // Sanitize filename for display
+      filename = sanitizeFilename(filename);
       setFileUri(asset.uri);
       setFileName(filename);
       setError('');
+      console.log('Image selected:', filename);
     }
   };
 
   const pickDocument = async () => {
     try {
+      console.log('Opening document picker...');
       const res = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: false,
         type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
       });
 
-      if (res.type === 'success') {
-        let filename = res.name || 'document';
-        const uri = res.uri;
+      console.log('Document picker response:', res);
+
+      // @ts-ignore - Handle response type checking
+      if (!res.canceled) {
+        // Handle both array of files and single file
+        // @ts-ignore
+        let file = Array.isArray(res.assets) ? res.assets[0] : res;
         
+        // @ts-ignore
+        const uri = file.uri || res.uri;
+        // @ts-ignore
+        let filename = file.name || file.fileName || (uri?.split('/').pop() || 'document');
+
+        if (!uri) {
+          Alert.alert('Error', 'No file URI found');
+          setError('No file URI found');
+          return;
+        }
+
+        console.log('Document selected:', { filename, uri });
+
         // Ensure filename has proper extension
         if (!filename.includes('.')) {
           if (uri.endsWith('.pdf')) filename += '.pdf';
@@ -102,12 +142,18 @@ function AppInner() {
           else filename += '.pdf'; // default
         }
         
-        console.log('Document selected:', { filename, uri });
+        // Sanitize filename for display
+        filename = sanitizeFilename(filename);
+        
+        console.log('Final filename:', filename);
         setFileUri(uri);
         setFileName(filename);
         setError('');
-      } else if (res.type === 'cancel') {
-        console.log('Document picker cancelled');
+        
+        // Show confirmation
+        Alert.alert('File Selected', `Ready to parse: ${filename}`);
+      } else {
+        console.log('Document picker was cancelled');
       }
     } catch (err: any) {
       console.error('Document picker error:', err);
@@ -132,8 +178,6 @@ function AppInner() {
     console.log('Backend URL:', BACKEND_URL);
 
     try {
-      const form = new FormData();
-      
       let filename = fileName;
       let fileType = 'application/octet-stream';
 
@@ -143,31 +187,22 @@ function AppInner() {
 
       if (uri_lower.endsWith('.pdf') || name_lower.endsWith('.pdf')) {
         fileType = 'application/pdf';
-        filename = name_lower.endsWith('.pdf') ? filename : filename + '.pdf';
       } else if (uri_lower.endsWith('.docx') || name_lower.endsWith('.docx')) {
         fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        filename = name_lower.endsWith('.docx') ? filename : filename + '.docx';
       } else if (uri_lower.endsWith('.doc') || name_lower.endsWith('.doc')) {
         fileType = 'application/msword';
-        filename = name_lower.endsWith('.doc') ? filename : filename + '.doc';
       } else if (uri_lower.endsWith('.txt') || name_lower.endsWith('.txt')) {
         fileType = 'text/plain';
-        filename = name_lower.endsWith('.txt') ? filename : filename + '.txt';
       } else if (uri_lower.endsWith('.jpg') || uri_lower.endsWith('.jpeg') || name_lower.endsWith('.jpg') || name_lower.endsWith('.jpeg')) {
         fileType = 'image/jpeg';
-        filename = (name_lower.endsWith('.jpg') || name_lower.endsWith('.jpeg')) ? filename : filename + '.jpg';
       } else if (uri_lower.endsWith('.png') || name_lower.endsWith('.png')) {
         fileType = 'image/png';
-        filename = name_lower.endsWith('.png') ? filename : filename + '.png';
-      } else {
-        // Default detection by content
-        if (!filename.includes('.')) {
-          filename += '.jpg'; // default to jpg
-        }
       }
 
       console.log('File Type:', fileType);
       console.log('Final Filename:', filename);
+
+      const form = new FormData();
 
       // Handle both mobile (Expo) and web (browser) file uploads
       if (fileUri.startsWith('blob:')) {
@@ -175,18 +210,49 @@ function AppInner() {
         console.log('Detected blob URL (web version)');
         const response = await fetch(fileUri);
         const blob = await response.blob();
+        // @ts-ignore
         form.append('file', blob, filename);
         console.log('Blob appended to FormData');
-      } else {
-        // Mobile/Expo: file:// URL - use direct append
+      } else if (fileUri.startsWith('file://')) {
+        // Mobile/Expo: file:// URL - read file and append
         console.log('Detected file URL (mobile version)');
+        try {
+          // Read file as base64
+          const base64 = await FileSystem.readAsStringAsync(fileUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          console.log('File read successfully, size:', base64.length);
+          
+          // Convert base64 to blob
+          const blob = await (async () => {
+            const res = await fetch(`data:${fileType};base64,${base64}`);
+            return res.blob();
+          })();
+          
+          // @ts-ignore
+          form.append('file', blob, filename);
+          console.log('File converted and appended to FormData');
+        } catch (fileReadError) {
+          console.error('Error reading file:', fileReadError);
+          // Fallback: use the URI directly
+          console.log('Falling back to direct URI append');
+          // @ts-ignore
+          form.append('file', {
+            uri: fileUri,
+            name: filename,
+            type: fileType,
+          });
+        }
+      } else {
+        // Unknown URI format - try direct append
+        console.log('Unknown URI format, attempting direct append');
         // @ts-ignore
         form.append('file', {
           uri: fileUri,
           name: filename,
           type: fileType,
         });
-        console.log('File appended to FormData');
       }
 
       const url = `${BACKEND_URL}/parse`;
@@ -214,9 +280,24 @@ function AppInner() {
       console.log('Success Response:', json);
 
       if (json.status === 'success' && json.data) {
-        setResumeData(json.data);
+        // Add metadata to the resume data for tracking
+        const resumeWithMetadata = {
+          ...json.data,
+          file_id: json.file_id,
+          original_filename: json.original_filename || fileName,
+          uploaded_at: new Date().toISOString(),
+        };
+        
+        console.log('Resume parsed:', {
+          fileName: resumeWithMetadata.original_filename,
+          fileId: resumeWithMetadata.file_id,
+          name: resumeWithMetadata.name,
+          email: resumeWithMetadata.email,
+        });
+        
+        setResumeData(resumeWithMetadata);
         setSelectedTab('overview');
-        Alert.alert('Success', 'Resume parsed successfully!');
+        Alert.alert('Success', `Resume "${resumeWithMetadata.original_filename}" parsed successfully!`);
       } else {
         throw new Error(json.detail?.message || 'Failed to parse resume');
       }
@@ -260,7 +341,7 @@ function AppInner() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
+      <StatusBar />
 
       {/* Header */}
       <View style={styles.header}>
@@ -400,6 +481,17 @@ function AppInner() {
                   </View>
                 </View>
 
+                {/* File Info */}
+                {resumeData.original_filename && (
+                  <View style={[styles.card, { backgroundColor: COLORS.background, borderColor: COLORS.border, borderWidth: 1 }]}>
+                    <Text style={styles.cardTitle}>Source File</Text>
+                    <Text style={styles.cardText}>{resumeData.original_filename}</Text>
+                    {resumeData.file_id && (
+                      <Text style={[styles.cardText, { fontSize: 11, color: COLORS.textLight, marginTop: 8 }]}>ID: {resumeData.file_id}</Text>
+                    )}
+                  </View>
+                )}
+
                 {/* Summary */}
                 {resumeData.summary && (
                   <View style={styles.card}>
@@ -414,8 +506,8 @@ function AppInner() {
                     <Text style={styles.cardTitle}>Location</Text>
                     <Text style={styles.cardText}>
                       {[
-                        resumeData.address.street_address,
-                        resumeData.address.city || resumeData.address.district,
+                        (resumeData.address as any)?.street_address,
+                        resumeData.address.city || (resumeData.address as any)?.district,
                         resumeData.address.state,
                         resumeData.address.country,
                       ]

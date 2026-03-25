@@ -11,14 +11,6 @@ from pathlib import Path
 from io import BytesIO
 from docx import Document
 
-# Try to import docx2pdf, but make it optional
-try:
-    import docx2pdf
-    HAS_DOCX2PDF = True
-except ImportError:
-    HAS_DOCX2PDF = False
-    logging.warning("docx2pdf not available - DOCX files will be converted via text extraction")
-
 
 def convert_to_png_list(file_content: bytes, filename: str) -> list:
     """

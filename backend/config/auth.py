@@ -4,7 +4,7 @@ Authentication module for API key validation
 from fastapi import HTTPException, status
 from fastapi.security import APIKeyHeader
 from fastapi import Security
-from backend.config.settings import API_KEY, REQUIRE_AUTH
+from .settings import API_KEY, REQUIRE_AUTH
 
 # Use FastAPI's APIKeyHeader so OpenAPI can expose a security scheme
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)

@@ -14,19 +14,66 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import traceback
 import uuid
+import logging
 
-from backend.config.settings import ALLOWED_FORMATS, MAX_FILE_SIZE_MB, REQUIRE_AUTH
-from backend.config.auth import verify_api_key
-from backend.services.converter import (
+from .config.settings import ALLOWED_FORMATS, MAX_FILE_SIZE_MB, REQUIRE_AUTH, RATE_LIMIT_PARSE, RATE_LIMIT_BATCH, RATE_LIMIT_TEXT
+from .config.auth import verify_api_key
+from .services.converter import (
     convert_to_png_list,
     extract_text_from_docx_bytes,
     DocxConversionError,
     get_resume_files_from_zip,
 )
-from backend.resume_parser.azure_vision import extract_resume_json_multi_page, extract_resume_from_text
-from backend.services.logger import log_processing
-from backend.resume_parser.gemini import generate_text
+from .resume_parser.azure_vision import extract_resume_json_multi_page, extract_resume_from_text
+from .services.logger import log_processing
+from .resume_parser.gemini import generate_text
 from typing import Dict
+from pydantic import BaseModel
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# Pydantic Models for API validation
+class ParseResponse(BaseModel):
+    status: str
+    data: Dict
+    processing_time: float
+    error: str = None
+    file_id: str
+    original_filename: str
+
+class BatchResult(BaseModel):
+    filename: str
+    status: str
+    data: Dict = None
+    error: str = None
+    processing_time: float
+
+class BatchParseResponse(BaseModel):
+    status: str
+    total_files: int
+    successful: int
+    failed: int
+    results: list[BatchResult]
+    total_processing_time: float
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    timestamp: str
+    services: Dict[str, str]
 
 app = FastAPI(
     title="Resume Parser API",
@@ -43,85 +90,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "name": "Resume Parser API",
-        "version": "2.0.0",
-        "authentication": "enabled" if REQUIRE_AUTH else "disabled",
-        "endpoints": {
-            "recommended": "/parse (auto-routes based on file type)",
-            "image_files": "/parse_resume (PDF, DOCX, Images)",
-            "text_files": "/parse_resume_txt (.txt only)",
-            "batch": "/parse_batch (ZIP files with multiple resumes)"
-        },
-        "docs": "/docs"
-    }
+# ============================================
+# HEALTH CHECK ENDPOINT
+# ============================================
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
-
-
-@app.post("/test-gemini")
-async def test_gemini_api(request_body: dict):
     """
-    Test endpoint to verify Google AI API key works
-    Accepts any JSON body properties and combines them into a message
+    Health check endpoint for monitoring and load balancer checks
     
-    Example request body:
-    {
-      "additionalProp1": "string",
-      "additionalProp2": "string",
-      "additionalProp3": "string"
+    Returns system status and service availability
+    """
+    import datetime
+    from .config.settings import GEMINI_API_KEY
+    
+    services_status = {
+        "gemini_api": "available" if GEMINI_API_KEY else "unconfigured",
+        "file_processing": "available",
+        "database": "not_required"  # No database dependency
     }
-    """
-    try:
-        # Combine all properties into a message
-        if not request_body:
-            message = "Hello Gemini! Please respond with a short test message."
-        else:
-            message = " ".join([f"{k}: {v}" for k, v in request_body.items()])
-        
-        response = generate_text(message, temperature=0.5, max_tokens=500)
-        return {
-            "status": "success",
-            "request_received": request_body,
-            "combined_message": message,
-            "response": response,
-            "note": "API key is working correctly!"
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "request_received": request_body,
-            "error": str(e),
-            "note": "API key test failed"
-        }
+    
+    return HealthResponse(
+        status="healthy",
+        version="2.0.0",
+        timestamp=datetime.datetime.utcnow().isoformat(),
+        services=services_status
+    )
 
-@app.get("/test-gemini-get")
-async def test_gemini_api_get():
-    """
-    Simple GET endpoint to test Gemini API without parameters
-    Just sends a predefined test message
-    """
-    try:
-        test_message = "What is AI? Answer in one sentence."
-        response = generate_text(test_message, temperature=0.5, max_tokens=200)
-        return {
-            "status": "success",
-            "test_message": test_message,
-            "response": response,
-            "timestamp": time.time()
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "hint": "Check your GEMINI_API_KEY in .env file"
-        }
+# ============================================
 # ORCHESTRATOR ENDPOINT (RECOMMENDED)
 # ============================================
 
@@ -153,14 +149,23 @@ async def parse_resume_orchestrator(
     file_ext = Path(filename).suffix.lower()
     file_content = await file.read()
     
-    print(f"Orchestrator: Received {filename} (type: {file_ext})")
+    logger.info(f"Orchestrator: Received {filename} (type: {file_ext})")
+    
+    # Validate file content is not empty
+    if not file_content or len(file_content) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty"
+        )
+    
+    logger.info(f"  File size: {len(file_content)} bytes")
     
     # Generate file_id for tracking
     file_id = str(uuid.uuid4())
     
     # Route based on file type
     if file_ext in TEXT_EXTENSIONS:
-        print(f"Routing to TEXT handler... ({file_ext})")
+        logger.info(f"Routing to TEXT handler... ({file_ext})")
         # Create a new UploadFile-like object for the handler
         from io import BytesIO
         file_like = BytesIO(file_content)
@@ -168,25 +173,28 @@ async def parse_resume_orchestrator(
         new_file = UploadFile(file_like, filename=filename, size=len(file_content))
         response = await parse_resume_txt(new_file)
     else:
-        print(f"Routing to IMAGE handler... ({file_ext})")
+        logger.info(f"Routing to IMAGE handler... ({file_ext})")
         # Create a new UploadFile-like object for the handler
         from io import BytesIO
         file_like = BytesIO(file_content)
         new_file = UploadFile(file_like, filename=filename, size=len(file_content))
         response = await parse_resume(new_file)
     
-    # Add file_id to response
+    # Add file_id and original filename to response
     # Normalize response to a dict and attach file_id
     if isinstance(response, dict):
         response['file_id'] = file_id
+        response['original_filename'] = filename
     else:
         try:
             # Try to convert Pydantic-like objects to dict
             response = getattr(response, 'dict', lambda: None)() or {}
             response['file_id'] = file_id
+            response['original_filename'] = filename
         except Exception:
-            response = {'status': 'success', 'data': response, 'file_id': file_id}
+            response = {'status': 'success', 'data': response, 'file_id': file_id, 'original_filename': filename}
     
+    logger.info(f"  Processed successfully with ID: {file_id}")
     return response
 
 
@@ -194,12 +202,8 @@ async def parse_resume_orchestrator(
 # BATCH PARSING ENDPOINT
 # ============================================
 
-class BatchParseResponse:
-    """Response for batch parsing - list of per-file results"""
-    pass
-
-
-@app.post("/parse_batch")
+@app.post("/parse_batch", response_model=BatchParseResponse)
+@limiter.limit(RATE_LIMIT_BATCH)
 async def parse_batch(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -254,7 +258,7 @@ async def parse_batch(
         zip_bytes = await file.read()
         
         # Extract resume files from ZIP
-        print(f"Extracting resumes from {filename}...")
+        logger.info(f"Extracting resumes from {filename}...")
         resume_files = get_resume_files_from_zip(zip_bytes)
         
         if not resume_files:
@@ -263,7 +267,7 @@ async def parse_batch(
                 detail="No supported resume files found in ZIP"
             )
         
-        print(f"Found {len(resume_files)} resumes to process")
+        logger.info(f"Found {len(resume_files)} resumes to process")
         
         results = []
         successful = 0
@@ -278,22 +282,20 @@ async def parse_batch(
                 resume_json = extract_resume_json_multi_page(png_bytes_list)
                 processing_time = time.time() - start_time
                 
-                return {
-                    "filename": filename,
-                    "status": "success",
-                    "data": resume_json,
-                    "error": None,
-                    "processing_time": processing_time
-                }
+                return BatchResult(
+                    filename=filename,
+                    status="success",
+                    data=resume_json,
+                    processing_time=processing_time
+                )
             except Exception as e:
                 processing_time = time.time() - start_time
-                return {
-                    "filename": filename,
-                    "status": "error",
-                    "data": None,
-                    "error": str(e),
-                    "processing_time": processing_time
-                }
+                return BatchResult(
+                    filename=filename,
+                    status="error",
+                    error=str(e),
+                    processing_time=processing_time
+                )
         
         # Execute with ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=3) as executor:
@@ -308,12 +310,12 @@ async def parse_batch(
                     result = future.result()
                     results.append(result)
                     
-                    if result['status'] == 'success':
+                    if result.status == "success":
                         successful += 1
-                        print(f"✓ {result['filename']} ({result['processing_time']:.2f}s)")
+                        logger.info(f"✓ {result.filename} ({result.processing_time:.2f}s)")
                     else:
                         failed += 1
-                        print(f"✗ {result['filename']}: {result['error'][:50]}")
+                        logger.warning(f"✗ {result.filename}: {result.error[:50] if result.error else 'Unknown error'}")
                 except Exception as e:
                     filename = futures[future]
                     failed += 1
@@ -329,21 +331,21 @@ async def parse_batch(
         
         batch_time = time.time() - batch_start
         
-        return {
-            "status": "batch_complete",
-            "total_files": len(resume_files),
-            "successful": successful,
-            "failed": failed,
-            "results": results,
-            "total_processing_time": batch_time
-        }
+        return BatchParseResponse(
+            status="batch_complete",
+            total_files=len(resume_files),
+            successful=successful,
+            failed=failed,
+            results=results,
+            total_processing_time=batch_time
+        )
     
     except HTTPException:
         raise
     except Exception as e:
         batch_time = time.time() - batch_start
-        print(f"Batch processing error: {str(e)}")
-        traceback.print_exc()
+        logger.error(f"Batch processing error: {str(e)}")
+        logger.error(traceback.format_exc())
         
         raise HTTPException(
             status_code=500,
@@ -359,6 +361,8 @@ async def parse_batch(
 # ============================================
 
 @app.post("/parse_resume")
+@app.post("/parse", response_model=ParseResponse)
+@limiter.limit(RATE_LIMIT_PARSE)
 async def parse_resume(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -402,7 +406,7 @@ async def parse_resume(
         
         # Step 1: Convert to PNG (returns list for multi-page)
         png_bytes_list = convert_to_png_list(file_content, filename)
-        print(f"Converted to {len(png_bytes_list)} page(s)")
+        logger.info(f"Converted {filename} to {len(png_bytes_list)} page(s)")
         
         # Step 2: Extract JSON from ALL pages and merge
         resume_json = extract_resume_json_multi_page(png_bytes_list)
@@ -416,25 +420,21 @@ async def parse_resume(
         # Log success
         log_processing(filename, processing_time, "SUCCESS")
         
-        return {
-            "status": "success",
-            "data": resume_data,
-            "processing_time": processing_time,
-            "error": None,
-            "file_id": file_id
-        }
+        return ParseResponse(
+            status="success",
+            data=resume_data,
+            processing_time=processing_time,
+            file_id=file_id,
+            original_filename=filename
+        )
     
     except DocxConversionError as e:
-        print(f"Docx conversion failed for {filename}; falling back to text parser: {e}")
+        logger.warning(f"Docx conversion failed for {filename}; falling back to text parser: {e}")
         text_content = extract_text_from_docx_bytes(file_content)
         if not text_content.strip():
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "status": "error",
-                    "message": "DOCX text extraction returned no content",
-                    "processing_time": time.time() - request_start,
-                }
+                detail="DOCX text extraction returned no content"
             )
 
         resume_json = extract_resume_from_text(text_content)
@@ -442,13 +442,13 @@ async def parse_resume(
         processing_time = time.time() - request_start
         log_processing(filename, processing_time, "SUCCESS (docx text fallback)")
 
-        return {
-            "status": "success",
-            "data": resume_data,
-            "processing_time": processing_time,
-            "error": None,
-            "file_id": file_id
-        }
+        return ParseResponse(
+            status="success",
+            data=resume_data,
+            processing_time=processing_time,
+            file_id=file_id,
+            original_filename=filename
+        )
 
     except HTTPException:
         raise
@@ -460,8 +460,8 @@ async def parse_resume(
         # Log failure
         log_processing(filename, processing_time, "FAILED", error_msg)
         
-        print(f"Error processing {filename}: {error_msg}")
-        traceback.print_exc()
+        logger.error(f"Error processing {filename}: {error_msg}")
+        logger.error(traceback.format_exc())
         
         raise HTTPException(
             status_code=500,
@@ -474,6 +474,8 @@ async def parse_resume(
 
 
 @app.post("/parse_resume_txt")
+@app.post("/parse_txt", response_model=ParseResponse)
+@limiter.limit(RATE_LIMIT_TEXT)
 async def parse_resume_txt(
     file: UploadFile = File(...),
     api_key: str = Depends(verify_api_key)
@@ -521,7 +523,7 @@ async def parse_resume_txt(
         for encoding in ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1', 'utf-16']:
             try:
                 text_content = file_content.decode(encoding)
-                print(f"Decoded with {encoding}")
+                logger.info(f"Decoded {filename} with {encoding}")
                 break
             except (UnicodeDecodeError, UnicodeError):
                 continue
@@ -549,15 +551,15 @@ async def parse_resume_txt(
         # Log success
         log_processing(filename, processing_time, "SUCCESS")
         
-        print(f"Text processing complete: {processing_time:.2f}s")
+        logger.info(f"Text processing complete: {processing_time:.2f}s")
         
-        return {
-            "status": "success",
-            "data": resume_data,
-            "processing_time": processing_time,
-            "error": None,
-            "file_id": file_id
-        }
+        return ParseResponse(
+            status="success",
+            data=resume_data,
+            processing_time=processing_time,
+            file_id=file_id,
+            original_filename=filename
+        )
         
     except HTTPException:
         raise
@@ -580,27 +582,6 @@ async def parse_resume_txt(
                 "processing_time": processing_time
             }
         )
-
-
-@app.post("/generate")
-async def generate_text_endpoint(
-    payload: Dict[str, str],
-    api_key: str = Depends(verify_api_key)
-):
-    """Simple endpoint to proxy prompts to Gemini/Generative API.
-
-    Expects JSON: { "prompt": "..." }
-    Returns the raw JSON response from the configured GEMINI endpoint.
-    """
-    prompt = payload.get("prompt")
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Missing 'prompt' in request body")
-
-    try:
-        resp = generate_text(prompt)
-        return {"status": "success", "data": resp}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

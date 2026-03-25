@@ -3,7 +3,7 @@ Processing logger for tracking request times
 """
 
 from datetime import datetime
-from backend.config.settings import LOG_FILE
+from ..config.settings import LOG_FILE
 
 
 def log_processing(filename: str, processing_time: float, status: str, error: str = None):
