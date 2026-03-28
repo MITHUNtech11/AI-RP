@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -14,6 +13,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { JobDescription } from '../types/resume';
 import { parseJobDescriptionViaBackend } from '../services/api';
+import { validateJobDescription, validateFileType } from '../utils/validation';
+import { THEME } from '../theme';
+import { ThemedText } from '../components/ThemedText';
 
 interface CreateRankingSessionProps {
   onJDParsed: (jd: JobDescription) => void;
@@ -27,8 +29,10 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
   const [processingTime, setProcessingTime] = useState(0);
 
   const handleParseJDFromText = async () => {
-    if (!jdText.trim()) {
-      Alert.alert('Error', 'Please enter a job description');
+    // Validate input before making API call
+    const errors = validateJobDescription(jdText);
+    if (errors.length > 0) {
+      Alert.alert('Validation Error', errors[0].message);
       return;
     }
 
@@ -59,6 +63,20 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
 
       if (!result.canceled && result.assets.length > 0) {
         const file = result.assets[0];
+
+        // Validate file type
+        const fileTypeError = validateFileType(file.name || '', [
+          '.pdf',
+          '.doc',
+          '.docx',
+          '.jpg',
+          '.jpeg',
+          '.png',
+        ]);
+        if (fileTypeError) {
+          Alert.alert('Invalid File Type', fileTypeError);
+          return;
+        }
 
         setIsLoading(true);
         try {
@@ -111,44 +129,56 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
 
     return (
       <View style={styles.previewContainer}>
-        <Text style={styles.previewTitle}>Job Description Preview</Text>
+        <ThemedText variant="h4" style={{ marginBottom: THEME.spacing.md }}>
+          Job Description Preview
+        </ThemedText>
 
         {/* Job Title */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionLabel}>Position</Text>
-          <Text style={styles.sectionValue}>{parsedJD.job_title}</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.xs }}>
+            POSITION
+          </ThemedText>
+          <ThemedText variant="bodyBold">{parsedJD.job_title}</ThemedText>
         </View>
 
         {/* Seniority Level */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionLabel}>Seniority Level</Text>
-          <Text style={styles.sectionValue}>{parsedJD.seniority_level}</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.xs }}>
+            SENIORITY LEVEL
+          </ThemedText>
+          <ThemedText variant="bodyBold">{parsedJD.seniority_level}</ThemedText>
         </View>
 
         {/* Required Education */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionLabel}>Required Education</Text>
-          <Text style={styles.sectionValue}>{parsedJD.required_education}</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.xs }}>
+            REQUIRED EDUCATION
+          </ThemedText>
+          <ThemedText variant="bodyBold">{parsedJD.required_education}</ThemedText>
         </View>
 
         {/* Experience */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionLabel}>Minimum Experience</Text>
-          <Text style={styles.sectionValue}>{parsedJD.minimum_experience_years} years</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.xs }}>
+            MINIMUM EXPERIENCE
+          </ThemedText>
+          <ThemedText variant="bodyBold">{parsedJD.minimum_experience_years} years</ThemedText>
           {parsedJD.preferred_experience_years > 0 && (
-            <Text style={styles.sectionNote}>
+            <ThemedText variant="caption" color={THEME.colors.text} style={{ marginTop: THEME.spacing.xs }}>
               Preferred: {parsedJD.preferred_experience_years} years
-            </Text>
+            </ThemedText>
           )}
         </View>
 
         {/* Required Skills */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionLabel}>Required Skills ({parsedJD.required_skills.length})</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.sm }}>
+            REQUIRED SKILLS ({parsedJD.required_skills.length})
+          </ThemedText>
           <View style={styles.skillsContainer}>
             {parsedJD.required_skills.map((skill, index) => (
               <View key={index} style={styles.skillTag}>
-                <Text style={styles.skillText}>{skill}</Text>
+                <ThemedText variant="caption" color={THEME.colors.success}>{skill}</ThemedText>
               </View>
             ))}
           </View>
@@ -157,14 +187,18 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
         {/* Employment Type */}
         {parsedJD.employment_type && (
           <View style={styles.previewSection}>
-            <Text style={styles.sectionLabel}>Employment Type</Text>
-            <Text style={styles.sectionValue}>{parsedJD.employment_type}</Text>
+            <ThemedText variant="caption" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.xs }}>
+              EMPLOYMENT TYPE
+            </ThemedText>
+            <ThemedText variant="bodyBold">{parsedJD.employment_type}</ThemedText>
           </View>
         )}
 
         {/* Processing Time */}
         <View style={styles.previewSection}>
-          <Text style={styles.sectionNote}>Parsed in {(processingTime / 1000).toFixed(2)}s</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted}>
+            Parsed in {(processingTime / 1000).toFixed(2)}s
+          </ThemedText>
         </View>
 
         {/* Action Button */}
@@ -173,7 +207,9 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
           onPress={handleProceedWithJD}
           disabled={isLoading}
         >
-          <Text style={styles.proceedButtonText}>Next: Upload Resumes</Text>
+          <ThemedText variant="button" color="#fff">
+            Next: Upload Resumes
+          </ThemedText>
         </TouchableOpacity>
       </View>
     );
@@ -181,8 +217,12 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Recruitment Ranking</Text>
-      <Text style={styles.subtitle}>Step 1: Upload Job Description</Text>
+      <ThemedText variant="h2" style={{ marginBottom: THEME.spacing.xs }}>
+        Recruitment Ranking
+      </ThemedText>
+      <ThemedText variant="body" color={THEME.colors.textMuted} style={{ marginBottom: THEME.spacing.lg }}>
+        Step 1: Upload Job Description
+      </ThemedText>
 
       {!parsedJD ? (
         <>
@@ -193,9 +233,12 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
               onPress={() => setUploadMode('text')}
               disabled={isLoading}
             >
-              <Text style={[styles.modeButtonText, uploadMode === 'text' && styles.modeButtonTextActive]}>
+              <ThemedText
+                variant="body"
+                color={uploadMode === 'text' ? '#fff' : THEME.colors.textMuted}
+              >
                 Paste Text
-              </Text>
+              </ThemedText>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -203,9 +246,12 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
               onPress={() => setUploadMode('file')}
               disabled={isLoading}
             >
-              <Text style={[styles.modeButtonText, uploadMode === 'file' && styles.modeButtonTextActive]}>
+              <ThemedText
+                variant="body"
+                color={uploadMode === 'file' ? '#fff' : THEME.colors.textMuted}
+              >
                 Upload File
-              </Text>
+              </ThemedText>
             </TouchableOpacity>
           </View>
 
@@ -215,7 +261,7 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
               <TextInput
                 style={styles.textInput}
                 placeholder="Paste job description here..."
-                placeholderTextColor="#999"
+                placeholderTextColor={THEME.colors.textMuted}
                 multiline
                 value={jdText}
                 onChangeText={setJdText}
@@ -231,7 +277,9 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.parseButtonText}>Parse Job Description</Text>
+                  <ThemedText variant="button" color="#fff">
+                    Parse Job Description
+                  </ThemedText>
                 )}
               </TouchableOpacity>
             </>
@@ -246,13 +294,15 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
                 {isLoading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.fileButtonText}>📄 Pick PDF, DOCX, or Image</Text>
+                  <ThemedText variant="button" color="#fff">
+                    📄 Pick PDF, DOCX, or Image
+                  </ThemedText>
                 )}
               </TouchableOpacity>
 
-              <Text style={styles.fileHint}>
+              <ThemedText variant="caption" color={THEME.colors.textMuted} align="center" style={{ marginBottom: THEME.spacing.lg }}>
                 Supported formats: PDF, DOCX, JPG, PNG
-              </Text>
+              </ThemedText>
             </>
           )}
         </>
@@ -267,158 +317,91 @@ const CreateRankingSession: React.FC<CreateRankingSessionProps> = ({ onJDParsed 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
+    backgroundColor: THEME.colors.background,
+    padding: THEME.spacing.lg,
   },
   modeSelector: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginBottom: 20,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.borderRadius.md,
+    marginBottom: THEME.spacing.lg,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: THEME.colors.border,
   },
   modeButton: {
     flex: 1,
-    padding: 12,
+    padding: THEME.spacing.md,
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: THEME.colors.card,
   },
   modeButtonActive: {
-    backgroundColor: '#4CAF50',
-  },
-  modeButtonText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  modeButtonTextActive: {
-    color: '#fff',
+    backgroundColor: THEME.colors.primary,
   },
   textInput: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.borderRadius.md,
+    padding: THEME.spacing.md,
+    marginBottom: THEME.spacing.lg,
     minHeight: 150,
     borderWidth: 1,
-    borderColor: '#ddd',
-    color: '#333',
-    fontSize: 14,
+    borderColor: THEME.colors.border,
+    color: THEME.colors.text,
   },
   parseButton: {
-    backgroundColor: '#4CAF50',
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.primary,
+    padding: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: THEME.spacing.lg,
+    minHeight: 44,
   },
   disabledButton: {
     opacity: 0.6,
   },
-  parseButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
   fileButton: {
-    backgroundColor: '#2196F3',
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.info,
+    padding: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  fileButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  fileHint: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: THEME.spacing.md,
+    minHeight: 44,
   },
   previewContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 16,
-    marginTop: 20,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.borderRadius.md,
+    padding: THEME.spacing.lg,
+    marginTop: THEME.spacing.lg,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  previewTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
+    borderColor: THEME.colors.border,
   },
   previewSection: {
-    marginBottom: 14,
-    paddingBottom: 14,
+    marginBottom: THEME.spacing.md,
+    paddingBottom: THEME.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  sectionLabel: {
-    fontSize: 12,
-    color: '#999',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  sectionValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  sectionNote: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-    fontStyle: 'italic',
+    borderBottomColor: THEME.colors.border,
   },
   skillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
+    gap: THEME.spacing.sm,
+    marginTop: THEME.spacing.sm,
   },
   skillTag: {
-    backgroundColor: '#e8f5e9',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    paddingHorizontal: THEME.spacing.sm,
+    paddingVertical: THEME.spacing.xs,
+    borderRadius: THEME.borderRadius.full,
     borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  skillText: {
-    fontSize: 12,
-    color: '#2e7d32',
-    fontWeight: '500',
+    borderColor: THEME.colors.primary,
   },
   proceedButton: {
-    backgroundColor: '#4CAF50',
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.primary,
+    padding: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-    marginTop: 16,
-  },
-  proceedButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    marginTop: THEME.spacing.lg,
+    minHeight: 44,
   },
 });
 

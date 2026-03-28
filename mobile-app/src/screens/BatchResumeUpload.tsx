@@ -14,6 +14,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { ResumeData, JobDescription, RankingSession } from '../types/resume';
 import { parseResumeViaBackend, rankCandidatesViaBackend } from '../services/api';
+import { THEME } from '../theme';
+import { ThemedText } from '../components/ThemedText';
+import { IconPresets } from '../components/FeatherIcon';
 
 interface BatchResumeUploadProps {
   jd: JobDescription;
@@ -128,12 +131,16 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
   const renderResumeItem = ({ item, index }: { item: ResumeData; index: number }) => (
     <View style={styles.resumeItem}>
       <View style={styles.resumeInfo}>
-        <Text style={styles.resumeName} numberOfLines={1}>
+        <ThemedText variant="bodyBold" numberOfLines={1}>
           {item.personalInfo?.fullName || item.fileName || 'Unknown'}
-        </Text>
-        <Text style={styles.resumeFile}>{item.fileName}</Text>
+        </ThemedText>
+        <ThemedText variant="caption" color={THEME.colors.textMuted}>
+          {item.fileName}
+        </ThemedText>
         {item.personalInfo?.email && (
-          <Text style={styles.resumeEmail}>{item.personalInfo.email}</Text>
+          <ThemedText variant="caption" color={THEME.colors.textLight}>
+            {item.personalInfo.email}
+          </ThemedText>
         )}
       </View>
 
@@ -141,7 +148,9 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
         style={styles.removeButton}
         onPress={() => handleRemoveResume(index)}
       >
-        <Text style={styles.removeButtonText}>✕</Text>
+        <ThemedText color={THEME.colors.danger} weight="700">
+          ✕
+        </ThemedText>
       </TouchableOpacity>
     </View>
   );
@@ -151,23 +160,27 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
       <ScrollView style={styles.scrollContainer}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} disabled={isLoading}>
-            <Text style={styles.backButton}>← Back</Text>
+            <ThemedText variant="bodyBold" color={THEME.colors.primary}>← Back</ThemedText>
           </TouchableOpacity>
-          <Text style={styles.title}>Upload Resumes</Text>
+          <ThemedText variant="h3" align="center" style={{ flex: 1 }}>Upload Resumes</ThemedText>
           <View style={{ width: 30 }} />
         </View>
 
-        <Text style={styles.subtitle}>Step 2: Select Candidate Resumes</Text>
+        <ThemedText variant="body" color={THEME.colors.textMuted} style={styles.subtitle}>
+          Step 2: Select Candidate Resumes
+        </ThemedText>
 
         {/* JD Summary */}
         <View style={styles.jdSummary}>
-          <Text style={styles.jdTitle}>{jd.job_title}</Text>
-          <Text style={styles.jdDetail}>
+          <ThemedText variant="h4" color={THEME.colors.primary} style={{ marginBottom: THEME.spacing.sm }}>
+            {jd.job_title}
+          </ThemedText>
+          <ThemedText variant="body" color={THEME.colors.text} style={{ marginBottom: 4 }}>
             📌 {jd.seniority_level} • {jd.minimum_experience_years}+ years
-          </Text>
-          <Text style={styles.jdDetail}>
+          </ThemedText>
+          <ThemedText variant="body" color={THEME.colors.text}>
             🎯 {jd.required_skills.length} required skills
-          </Text>
+          </ThemedText>
         </View>
 
         {/* Add Resume Button */}
@@ -179,22 +192,22 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
           {currentlyParsing !== null ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.addButtonText}>+ Add Resume</Text>
+            <ThemedText variant="button" color="#fff">+ Add Resume</ThemedText>
           )}
         </TouchableOpacity>
 
         {currentlyParsing !== null && (
-          <Text style={styles.parsingText}>
+          <ThemedText variant="caption" color={THEME.colors.textMuted} align="center">
             Parsing resume {(currentlyParsing || 0) + 1}...
-          </Text>
+          </ThemedText>
         )}
 
         {/* Selected Resumes List */}
         {selectedResumes.length > 0 && (
           <View style={styles.resumesSection}>
-            <Text style={styles.resumesTitle}>
+            <ThemedText variant="bodyBold" style={{ marginBottom: THEME.spacing.md }}>
               Selected Resumes ({selectedResumes.length})
-            </Text>
+            </ThemedText>
 
             <FlatList
               scrollEnabled={false}
@@ -208,10 +221,12 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
 
         {selectedResumes.length === 0 && !isLoading && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>📄 No resumes selected</Text>
-            <Text style={styles.emptyStateSubtext}>
+            <ThemedText variant="h4" color={THEME.colors.border} style={{ marginBottom: THEME.spacing.md }}>
+              📄 No resumes selected
+            </ThemedText>
+            <ThemedText variant="body" color={THEME.colors.textMuted} align="center">
               Add at least one resume to compare
-            </Text>
+            </ThemedText>
           </View>
         )}
 
@@ -228,9 +243,9 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
           {isLoading ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.analyzeButtonText}>
+            <ThemedText variant="button" color="#fff">
               Analyze {selectedResumes.length} Candidate{selectedResumes.length !== 1 ? 's' : ''}
-            </Text>
+            </ThemedText>
           )}
         </TouchableOpacity>
       </View>
@@ -241,161 +256,80 @@ const BatchResumeUpload: React.FC<BatchResumeUploadProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: THEME.colors.background,
   },
   scrollContainer: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    padding: THEME.spacing.lg,
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  backButton: {
-    fontSize: 16,
-    color: '#2196F3',
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    justifyContent: 'space-between',
+    marginBottom: THEME.spacing.lg,
+    paddingBottom: THEME.spacing.md,
+    borderBottomColor: THEME.colors.border,
+    borderBottomWidth: 1,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
+    marginBottom: THEME.spacing.lg,
   },
   jdSummary: {
-    backgroundColor: '#e3f2fd',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
-  },
-  jdTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1976d2',
-    marginBottom: 8,
-  },
-  jdDetail: {
-    fontSize: 13,
-    color: '#1565c0',
-    marginBottom: 4,
+    backgroundColor: THEME.colors.card,
+    padding: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
+    marginBottom: THEME.spacing.lg,
   },
   addButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.primary,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: THEME.spacing.md,
+    minHeight: 44,
   },
   disabledButton: {
     opacity: 0.6,
   },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  parsingText: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 12,
-    fontStyle: 'italic',
-  },
   resumesSection: {
-    marginTop: 16,
-  },
-  resumesTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
+    marginTop: THEME.spacing.lg,
   },
   resumeItem: {
-    backgroundColor: '#fff',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginBottom: 8,
-  },
-  resumeInfo: {
-    flex: 1,
-  },
-  resumeName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  resumeFile: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 2,
-  },
-  resumeEmail: {
-    fontSize: 12,
-    color: '#666',
+    paddingVertical: THEME.spacing.md,
   },
   removeButton: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#ffebee',
+    backgroundColor: 'rgba(211, 47, 47, 0.1)',
     borderRadius: 4,
     marginLeft: 12,
   },
-  removeButtonText: {
-    fontSize: 18,
-    color: '#d32f2f',
-    fontWeight: 'bold',
-  },
   separator: {
-    height: 0,
+    height: 1,
+    backgroundColor: THEME.colors.border,
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptyStateText: {
-    fontSize: 20,
-    color: '#ccc',
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#999',
+    paddingVertical: THEME.spacing.xxxl,
   },
   analyzeButtonContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 12,
-    backgroundColor: '#f5f5f5',
+    padding: THEME.spacing.lg,
+    paddingBottom: THEME.spacing.lg + 10,
+    backgroundColor: THEME.colors.background,
+    borderTopColor: THEME.colors.border,
     borderTopWidth: 1,
-    borderTopColor: '#ddd',
   },
   analyzeButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 14,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.primary,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-  },
-  analyzeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    justifyContent: 'center',
+    minHeight: 48,
   },
 });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -6,19 +6,16 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
-  Dimensions,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
-
-const { width } = Dimensions.get('window');
-
-// IMPORTANT: Backend must be running with: python main.py
-// Development mode - using localhost
-const BACKEND_URL = 'http://127.0.0.1:8000';
+import { BACKEND_URL } from './src/services/api';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { ResumeProvider } from './src/context/ResumeContext';
+import { useFileUpload } from './src/hooks/useFileUpload';
+import { UploadSection } from './src/components/UploadSection';
+import { ResumeDisplay } from './src/components/ResumeDisplay';
+import { initializeHttpClient } from './src/services/httpConfig';
+import { THEME } from './src/theme';
 
 // Beautiful color scheme
 const COLORS = {
@@ -33,295 +30,31 @@ const COLORS = {
   border: '#E2E8F0',
 };
 
-interface ResumeData {
-  first_name?: string;
-  last_name?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  summary?: string;
-  skills?: string[];
-  employment?: Array<{ company_name?: string; designation?: string }>;
-  qualifications?: Array<{ qualification?: string; college_or_school?: string }>;
-  languages?: Array<{ language?: string }>;
-  address?: { city?: string; state?: string; country?: string };
-  [key: string]: any;
-}
-
-// Helper function to sanitize filename for display
-const sanitizeFilename = (filename: string): string => {
-  if (!filename) return 'Resume';
-  
-  // Remove URL encoding (%20 -> space, etc.)
-  let decoded = decodeURIComponent(filename);
-  
-  // Remove any special characters that aren't safe to display
-  decoded = decoded.replace(/[<>:"|?*]/g, '_');
-  
-  // Limit to reasonable length
-  if (decoded.length > 100) {
-    const ext = decoded.split('.').pop() || 'pdf';
-    decoded = decoded.substring(0, 80) + '...' + ext;
-  }
-  
-  return decoded || 'Resume';
-};
-
 function AppInner() {
-  const [fileUri, setFileUri] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [resumeData, setResumeData] = useState<ResumeData | null>(null);
   const [error, setError] = useState<string>('');
-  const [selectedTab, setSelectedTab] = useState<string>('overview');
+  const {
+    fileUri,
+    fileName,
+    loading,
+    resumeData,
+    uploadProgress,
+    pickImage,
+    pickDocument,
+    uploadFile,
+    resetFile,
+  } = useFileUpload();
 
-  const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission Required', 'Please allow media library access to continue.');
-      return;
-    }
-
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
+  // Initialize HTTP client with interceptors and retry policies
+  useEffect(() => {
+    initializeHttpClient({
+      apiKey: process.env.REACT_APP_BACKEND_API_KEY,
+      verbose: __DEV__, // Enable verbose logging in dev mode
+      enableLogging: true,
+      enableErrorRecovery: true,
+      enablePerformanceMonitoring: true,
+      enableStatusValidation: true,
     });
-
-    if (!res.canceled && res.assets && res.assets.length > 0) {
-      const asset = res.assets[0];
-      // Extract filename or use a default with extension
-      let filename = asset.fileName || asset.uri?.split('/').pop() || 'image.jpg';
-      // Ensure filename has an extension
-      if (!filename.includes('.')) {
-        filename += '.jpg';
-      }
-      // Sanitize filename for display
-      filename = sanitizeFilename(filename);
-      setFileUri(asset.uri);
-      setFileName(filename);
-      setError('');
-      console.log('Image selected:', filename);
-    }
-  };
-
-  const pickDocument = async () => {
-    try {
-      console.log('Opening document picker...');
-      const res = await DocumentPicker.getDocumentAsync({
-        copyToCacheDirectory: false,
-        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'],
-      });
-
-      console.log('Document picker response:', res);
-
-      // @ts-ignore - Handle response type checking
-      if (!res.canceled) {
-        // Handle both array of files and single file
-        // @ts-ignore
-        let file = Array.isArray(res.assets) ? res.assets[0] : res;
-        
-        // @ts-ignore
-        const uri = file.uri || res.uri;
-        // @ts-ignore
-        let filename = file.name || file.fileName || (uri?.split('/').pop() || 'document');
-
-        if (!uri) {
-          Alert.alert('Error', 'No file URI found');
-          setError('No file URI found');
-          return;
-        }
-
-        console.log('Document selected:', { filename, uri });
-
-        // Ensure filename has proper extension
-        if (!filename.includes('.')) {
-          if (uri.endsWith('.pdf')) filename += '.pdf';
-          else if (uri.endsWith('.docx')) filename += '.docx';
-          else if (uri.endsWith('.doc')) filename += '.doc';
-          else if (uri.endsWith('.txt')) filename += '.txt';
-          else filename += '.pdf'; // default
-        }
-        
-        // Sanitize filename for display
-        filename = sanitizeFilename(filename);
-        
-        console.log('Final filename:', filename);
-        setFileUri(uri);
-        setFileName(filename);
-        setError('');
-        
-        // Show confirmation
-        Alert.alert('File Selected', `Ready to parse: ${filename}`);
-      } else {
-        console.log('Document picker was cancelled');
-      }
-    } catch (err: any) {
-      console.error('Document picker error:', err);
-      Alert.alert('Error', 'Failed to pick document: ' + (err.message || 'Unknown error'));
-      setError('Failed to pick document');
-    }
-  };
-
-  const uploadFile = async () => {
-    if (!fileUri) {
-      Alert.alert('No File Selected', 'Please select a resume file first.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setResumeData(null);
-
-    console.log('=== UPLOAD START ===');
-    console.log('File URI:', fileUri);
-    console.log('File Name:', fileName);
-    console.log('Backend URL:', BACKEND_URL);
-
-    try {
-      let filename = fileName;
-      let fileType = 'application/octet-stream';
-
-      // Detect file type from filename or URI
-      const uri_lower = fileUri.toLowerCase();
-      const name_lower = filename.toLowerCase();
-
-      if (uri_lower.endsWith('.pdf') || name_lower.endsWith('.pdf')) {
-        fileType = 'application/pdf';
-      } else if (uri_lower.endsWith('.docx') || name_lower.endsWith('.docx')) {
-        fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      } else if (uri_lower.endsWith('.doc') || name_lower.endsWith('.doc')) {
-        fileType = 'application/msword';
-      } else if (uri_lower.endsWith('.txt') || name_lower.endsWith('.txt')) {
-        fileType = 'text/plain';
-      } else if (uri_lower.endsWith('.jpg') || uri_lower.endsWith('.jpeg') || name_lower.endsWith('.jpg') || name_lower.endsWith('.jpeg')) {
-        fileType = 'image/jpeg';
-      } else if (uri_lower.endsWith('.png') || name_lower.endsWith('.png')) {
-        fileType = 'image/png';
-      }
-
-      console.log('File Type:', fileType);
-      console.log('Final Filename:', filename);
-
-      const form = new FormData();
-
-      // Handle both mobile (Expo) and web (browser) file uploads
-      if (fileUri.startsWith('blob:')) {
-        // Web/Browser: blob URL - fetch and convert to File
-        console.log('Detected blob URL (web version)');
-        const response = await fetch(fileUri);
-        const blob = await response.blob();
-        // @ts-ignore
-        form.append('file', blob, filename);
-        console.log('Blob appended to FormData');
-      } else if (fileUri.startsWith('file://')) {
-        // Mobile/Expo: file:// URL - read file and append
-        console.log('Detected file URL (mobile version)');
-        try {
-          // Read file as base64
-          const base64 = await FileSystem.readAsStringAsync(fileUri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          
-          console.log('File read successfully, size:', base64.length);
-          
-          // Convert base64 to blob
-          const blob = await (async () => {
-            const res = await fetch(`data:${fileType};base64,${base64}`);
-            return res.blob();
-          })();
-          
-          // @ts-ignore
-          form.append('file', blob, filename);
-          console.log('File converted and appended to FormData');
-        } catch (fileReadError) {
-          console.error('Error reading file:', fileReadError);
-          // Fallback: use the URI directly
-          console.log('Falling back to direct URI append');
-          // @ts-ignore
-          form.append('file', {
-            uri: fileUri,
-            name: filename,
-            type: fileType,
-          });
-        }
-      } else {
-        // Unknown URI format - try direct append
-        console.log('Unknown URI format, attempting direct append');
-        // @ts-ignore
-        form.append('file', {
-          uri: fileUri,
-          name: filename,
-          type: fileType,
-        });
-      }
-
-      const url = `${BACKEND_URL}/parse`;
-      console.log('Sending request to:', url);
-      console.log('Form data prepared');
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': 'dev-key-12345', // Add API key header
-        },
-        body: form,
-      });
-
-      console.log('Response Status:', response.status);
-      console.log('Response OK:', response.ok);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.log('Error Response:', errorData);
-        throw new Error(errorData.detail?.[0]?.msg || errorData.detail?.message || errorData.detail || `Error: ${response.status}`);
-      }
-
-      const json = await response.json();
-      console.log('Success Response:', json);
-
-      if (json.status === 'success' && json.data) {
-        // Add metadata to the resume data for tracking
-        const resumeWithMetadata = {
-          ...json.data,
-          file_id: json.file_id,
-          original_filename: json.original_filename || fileName,
-          uploaded_at: new Date().toISOString(),
-        };
-        
-        console.log('Resume parsed:', {
-          fileName: resumeWithMetadata.original_filename,
-          fileId: resumeWithMetadata.file_id,
-          name: resumeWithMetadata.name,
-          email: resumeWithMetadata.email,
-        });
-        
-        setResumeData(resumeWithMetadata);
-        setSelectedTab('overview');
-        Alert.alert('Success', `Resume "${resumeWithMetadata.original_filename}" parsed successfully!`);
-      } else {
-        throw new Error(json.detail?.message || 'Failed to parse resume');
-      }
-    } catch (err: any) {
-      console.log('=== ERROR ===');
-      console.log('Error Type:', err.name);
-      console.log('Error Message:', err.message);
-      console.log('Error:', err);
-      
-      setError(err.message || 'An error occurred. Please try again.');
-      Alert.alert('Parse Error', err.message || 'Network error - check console logs');
-    } finally {
-      setLoading(false);
-      console.log('=== UPLOAD END ===');
-    }
-  };
-
-  const handleNewFile = () => {
-    setFileUri(null);
-    setFileName('');
-    setResumeData(null);
-    setError('');
-    setSelectedTab('overview');
-  };
+  }, []);
 
   const testBackendConnection = async () => {
     console.log('=== TESTING BACKEND CONNECTION ===');
@@ -363,278 +96,38 @@ function AppInner() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {!resumeData ? (
-          // Upload Section
-          <View style={styles.uploadSection}>
-            {/* File Status */}
-            {fileUri && (
-              <View style={[styles.card, styles.fileCard]}>
-                <View style={styles.fileCardHeader}>
-                  <Text style={styles.fileCardTitle}>✅ File Ready</Text>
-                  <TouchableOpacity onPress={handleNewFile}>
-                    <Text style={styles.fileCardChange}>Change</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.fileCardName}>{fileName}</Text>
-              </View>
-            )}
-
-            {/* Upload Buttons */}
-            <View style={styles.uploadButtonsContainer}>
-              <TouchableOpacity
-                style={[styles.uploadButton, styles.imageButton]}
-                onPress={pickImage}
-              >
-                <Text style={styles.uploadButtonIcon}>📷</Text>
-                <Text style={styles.uploadButtonText}>Pick Image</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.uploadButton, styles.documentButton]}
-                onPress={pickDocument}
-              >
-                <Text style={styles.uploadButtonIcon}>📄</Text>
-                <Text style={styles.uploadButtonText}>Pick Document</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Parse Button */}
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>❌ {error}</Text>
             <TouchableOpacity
-              style={[styles.parseButton, !fileUri && styles.parseButtonDisabled]}
-              onPress={uploadFile}
-              disabled={!fileUri || loading}
+              style={styles.errorDismissButton}
+              onPress={() => setError('')}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.parseButtonIcon}>🚀</Text>
-                  <Text style={styles.parseButtonText}>
-                    {loading ? 'Processing...' : 'Parse Resume'}
-                  </Text>
-                </>
-              )}
+              <Text style={styles.errorDismissText}>Dismiss</Text>
             </TouchableOpacity>
-
-            {/* Info Cards */}
-            <View style={styles.infoCardsContainer}>
-              <View style={[styles.infoCard, { borderLeftColor: COLORS.primary }]}>
-                <Text style={styles.infoCardEmoji}>⚡</Text>
-                <Text style={styles.infoCardText}>Fast & Accurate</Text>
-              </View>
-              <View style={[styles.infoCard, { borderLeftColor: COLORS.success }]}>
-                <Text style={styles.infoCardEmoji}>🔒</Text>
-                <Text style={styles.infoCardText}>Secure Upload</Text>
-              </View>
-              <View style={[styles.infoCard, { borderLeftColor: COLORS.secondary }]}>
-                <Text style={styles.infoCardEmoji}>✨</Text>
-                <Text style={styles.infoCardText}>Smart Analysis</Text>
-              </View>
-            </View>
           </View>
+        ) : null}
+
+        {!resumeData ? (
+          <UploadSection
+            fileName={fileName}
+            loading={loading}
+            fileUri={fileUri}
+            uploadProgress={uploadProgress}
+            onPickImage={pickImage}
+            onPickDocument={pickDocument}
+            onUpload={uploadFile}
+            onReset={resetFile}
+          />
         ) : (
-          // Results Section
-          <View style={styles.resultsSection}>
-            {/* Tab Navigation */}
-            <View style={styles.tabsContainer}>
-              {['overview', 'skills', 'education', 'experience'].map((tab) => (
-                <TouchableOpacity
-                  key={tab}
-                  style={[
-                    styles.tab,
-                    selectedTab === tab && styles.tabActive,
-                  ]}
-                  onPress={() => setSelectedTab(tab)}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      selectedTab === tab && styles.tabTextActive,
-                    ]}
-                  >
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {/* Tab Content */}
-            {selectedTab === 'overview' && (
-              <View style={styles.tabContent}>
-                {/* Profile Header */}
-                <View style={styles.profileHeader}>
-                  <View style={styles.profileAvatar}>
-                    <Text style={styles.profileAvatarText}>
-                      {(resumeData.first_name?.[0] || 'U').toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={styles.profileInfo}>
-                    <Text style={styles.profileName}>
-                      {resumeData.name || `${resumeData.first_name} ${resumeData.last_name}`}
-                    </Text>
-                    {resumeData.email && (
-                      <Text style={styles.profileDetail}>📧 {resumeData.email}</Text>
-                    )}
-                    {resumeData.phone && (
-                      <Text style={styles.profileDetail}>📱 {resumeData.phone}</Text>
-                    )}
-                  </View>
-                </View>
-
-                {/* File Info */}
-                {resumeData.original_filename && (
-                  <View style={[styles.card, { backgroundColor: COLORS.background, borderColor: COLORS.border, borderWidth: 1 }]}>
-                    <Text style={styles.cardTitle}>Source File</Text>
-                    <Text style={styles.cardText}>{resumeData.original_filename}</Text>
-                    {resumeData.file_id && (
-                      <Text style={[styles.cardText, { fontSize: 11, color: COLORS.textLight, marginTop: 8 }]}>ID: {resumeData.file_id}</Text>
-                    )}
-                  </View>
-                )}
-
-                {/* Summary */}
-                {resumeData.summary && (
-                  <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Professional Summary</Text>
-                    <Text style={styles.cardText}>{resumeData.summary}</Text>
-                  </View>
-                )}
-
-                {/* Address */}
-                {resumeData.address && (
-                  <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Location</Text>
-                    <Text style={styles.cardText}>
-                      {[
-                        (resumeData.address as any)?.street_address,
-                        resumeData.address.city || (resumeData.address as any)?.district,
-                        resumeData.address.state,
-                        resumeData.address.country,
-                      ]
-                        .filter(Boolean)
-                        .join(', ')}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {selectedTab === 'skills' && (
-              <View style={styles.tabContent}>
-                {resumeData.skills && resumeData.skills.length > 0 ? (
-                  <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Skills</Text>
-                    <View style={styles.skillsGrid}>
-                      {resumeData.skills.map((skill: string, idx: number) => (
-                        <View key={idx} style={styles.skillTag}>
-                          <Text style={styles.skillTagText}>{skill}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateText}>No skills found</Text>
-                  </View>
-                )}
-
-                {resumeData.languages && resumeData.languages.length > 0 && (
-                  <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Languages</Text>
-                    {resumeData.languages.map((lang: any, idx: number) => (
-                      <View key={idx} style={styles.languageItem}>
-                        <Text style={styles.languageName}>{lang.language}</Text>
-                        <View style={styles.languageProfs}>
-                          {lang.can_read && (
-                            <Text style={styles.languageProf}>📖 Read</Text>
-                          )}
-                          {lang.can_speak && (
-                            <Text style={styles.languageProf}>🎤 Speak</Text>
-                          )}
-                          {lang.can_write && (
-                            <Text style={styles.languageProf}>✍️ Write</Text>
-                          )}
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {selectedTab === 'education' && (
-              <View style={styles.tabContent}>
-                {resumeData.qualifications && resumeData.qualifications.length > 0 ? (
-                  resumeData.qualifications.map((qual: any, idx: number) => (
-                    <View key={idx} style={styles.card}>
-                      <View style={styles.cardHeader}>
-                        <View>
-                          <Text style={styles.cardSubtitle}>{qual.qualification}</Text>
-                          {qual.specialization && (
-                            <Text style={styles.cardMeta}>{qual.specialization}</Text>
-                          )}
-                        </View>
-                        {qual.year_of_completion && (
-                          <Text style={styles.cardYear}>{qual.year_of_completion}</Text>
-                        )}
-                      </View>
-                      <Text style={styles.cardText}>{qual.college_or_school}</Text>
-                      {qual.percentage && (
-                        <Text style={styles.cardMeta}>📊 {qual.percentage}</Text>
-                      )}
-                    </View>
-                  ))
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateText}>No education details found</Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {selectedTab === 'experience' && (
-              <View style={styles.tabContent}>
-                {resumeData.employment && resumeData.employment.length > 0 ? (
-                  resumeData.employment.map((job: any, idx: number) => (
-                    <View key={idx} style={styles.card}>
-                      <View style={styles.cardHeader}>
-                        <View>
-                          <Text style={styles.cardSubtitle}>{job.designation}</Text>
-                          <Text style={styles.cardMeta}>{job.company_name}</Text>
-                        </View>
-                        {job.startDate && (
-                          <Text style={styles.cardYear}>
-                            {job.startDate}
-                            {job.endDate ? ` - ${job.endDate}` : ' - Present'}
-                          </Text>
-                        )}
-                      </View>
-                      {job.job_profile && (
-                        <Text style={styles.cardText}>{job.job_profile}</Text>
-                      )}
-                      {job.employment_type && (
-                        <Text style={styles.cardMeta}>💼 {job.employment_type}</Text>
-                      )}
-                    </View>
-                  ))
-                ) : (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyStateText}>No work experience found</Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
+          <ResumeDisplay resumeData={resumeData} onNewResume={resetFile} />
         )}
       </ScrollView>
 
       {/* Action Button at Bottom */}
       {resumeData && (
         <View style={styles.bottomAction}>
-          <TouchableOpacity
-            style={styles.newParseButton}
-            onPress={handleNewFile}
-          >
+          <TouchableOpacity style={styles.newParseButton} onPress={resetFile}>
             <Text style={styles.newParseButtonText}>📄 Parse Another Resume</Text>
           </TouchableOpacity>
         </View>
@@ -644,7 +137,13 @@ function AppInner() {
 }
 
 export default function App() {
-  return <AppInner />;
+  return (
+    <ErrorBoundary>
+      <ResumeProvider>
+        <AppInner />
+      </ResumeProvider>
+    </ErrorBoundary>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -681,11 +180,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
     marginBottom: 4,
+    fontFamily: THEME.typography.fontFamilyBold,
   },
   headerSubtitle: {
     fontSize: 13,
     color: '#E0E7FF',
     opacity: 0.9,
+    fontFamily: THEME.typography.fontFamily,
   },
 
   testButton: {
@@ -699,6 +200,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#fff',
+    fontFamily: THEME.typography.fontFamilySemiBold,
   },
 
   // Content
@@ -708,312 +210,34 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
 
-  // Upload Section
-  uploadSection: {
-    paddingBottom: 40,
-  },
-
-  fileCard: {
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.success,
-    backgroundColor: '#F0FDF4',
-  },
-  fileCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  fileCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.success,
-  },
-  fileCardChange: {
-    fontSize: 12,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  fileCardName: {
-    fontSize: 13,
-    color: COLORS.text,
-    fontWeight: '500',
-  },
-
-  uploadButtonsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  uploadButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  imageButton: {
-    backgroundColor: '#FEF3C7',
-  },
-  documentButton: {
-    backgroundColor: '#DBEAFE',
-  },
-  uploadButtonIcon: {
-    fontSize: 24,
-    marginBottom: 6,
-  },
-  uploadButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-
-  parseButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 24,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  parseButtonDisabled: {
-    backgroundColor: COLORS.border,
-    shadowOpacity: 0.1,
-  },
-  parseButtonIcon: {
-    fontSize: 18,
-  },
-  parseButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-
-  infoCardsContainer: {
-    gap: 10,
-  },
-  infoCard: {
-    backgroundColor: COLORS.card,
-    borderLeftWidth: 4,
+  // Error State
+  errorContainer: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
     borderRadius: 10,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    padding: 16,
+    marginBottom: 20,
   },
-  infoCardEmoji: {
-    fontSize: 20,
-  },
-  infoCardText: {
-    fontSize: 13,
+  errorText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: COLORS.text,
-  },
-
-  // Results Section
-  resultsSection: {
-    paddingBottom: 40,
-  },
-
-  tabsContainer: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  tabActive: {
-    backgroundColor: COLORS.primary,
-  },
-  tabText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.textLight,
-  },
-  tabTextActive: {
-    color: '#fff',
-  },
-
-  tabContent: {
-    gap: 12,
-  },
-
-  // Profile Header
-  profileHeader: {
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  profileAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileAvatarText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  profileInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  profileName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  profileDetail: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-
-  // Card
-  card: {
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.text,
+    color: '#DC2626',
     marginBottom: 12,
+    fontFamily: THEME.typography.fontFamilySemiBold,
   },
-  cardSubtitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 2,
-  },
-  cardMeta: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginTop: 4,
-  },
-  cardText: {
-    fontSize: 13,
-    color: COLORS.text,
-    lineHeight: 20,
-    marginVertical: 4,
-  },
-  cardYear: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-
-  // Skills
-  skillsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  skillTag: {
-    backgroundColor: COLORS.primary,
+  errorDismissButton: {
+    backgroundColor: '#DC2626',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
   },
-  skillTagText: {
+  errorDismissText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#fff',
-  },
-
-  // Languages
-  languageItem: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-  },
-  languageName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  languageProfs: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  languageProf: {
-    fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: '600',
-    backgroundColor: '#E0E7FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-
-  // Empty State
-  emptyState: {
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    fontWeight: '600',
+    fontFamily: THEME.typography.fontFamilySemiBold,
   },
 
   // Bottom Action
@@ -1039,5 +263,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',
+    fontFamily: THEME.typography.fontFamilyBold,
   },
 });

@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { postFormData, postJSON } from './httpClient';
 
 // Get the backend URL based on platform and environment
 const getBackendUrl = (): string => {
@@ -22,10 +23,43 @@ const getBackendUrl = (): string => {
 };
 
 // API Key for backend authentication
-const API_KEY = process.env.REACT_APP_BACKEND_API_KEY || 'dev-key-12345';
+// ⚠️ REQUIRED: Set REACT_APP_BACKEND_API_KEY in environment variables
+// Do NOT commit real API keys to version control
+const API_KEY = process.env.REACT_APP_BACKEND_API_KEY;
+
+if (!API_KEY) {
+  console.warn(
+    '⚠️ WARNING: REACT_APP_BACKEND_API_KEY environment variable is not set. ' +
+    'API authentication will fail. See .env.example for configuration.'
+  );
+}
 
 export const BACKEND_URL = getBackendUrl();
-export const BACKEND_API_KEY = API_KEY;
+export const BACKEND_API_KEY = API_KEY || '';
+
+// Type definitions for API responses
+export interface JobDescription {
+  name?: string;
+  position?: string;
+  description: string;
+  requirements?: string[];
+  skills?: string[];
+  [key: string]: any;
+}
+
+export interface RankingResult {
+  status: 'success' | 'error';
+  data?: {
+    rankings?: Array<{
+      resume_index: number;
+      score: number;
+      matched_skills: string[];
+      missing_skills: string[];
+    }>;
+    [key: string]: any;
+  };
+  detail?: string;
+}
 
 export interface ResumeData {
   id: string;
@@ -78,58 +112,27 @@ export const parseResumeViaBackend = async (
     
     formData.append('file', blob, fileName);
 
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+    // Use centralized HTTP client for consistent error handling and progress tracking
+    const result = await postFormData<any>(
+      `${BACKEND_URL}/parse`,
+      formData,
+      { 'X-API-Key': BACKEND_API_KEY },
+      onProgress
+    );
 
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = (e.loaded / e.total) * 100;
-          onProgress?.(Math.min(percentComplete, 95)); // Cap at 95% until complete
-        }
-      });
-
-      xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          try {
-            const result = JSON.parse(xhr.responseText);
-            if (result.status === 'success' && result.data) {
-              onProgress?.(100);
-              resolve({
-                ...result.data,
-                id: result.file_id || Math.random().toString(36).substr(2, 9),
-                uploadDate: new Date().toISOString(),
-                status: 'completed',
-                fileName: fileName,
-              });
-            } else {
-              reject(new Error(result.detail || 'Failed to parse resume'));
-            }
-          } catch (e) {
-            reject(new Error('Invalid response from server'));
-          }
-        } else {
-          try {
-            const errorResponse = JSON.parse(xhr.responseText);
-            reject(new Error(errorResponse.detail || `Server error: ${xhr.status}`));
-          } catch {
-            reject(new Error(`Server error: ${xhr.status}`));
-          }
-        }
-      });
-
-      xhr.addEventListener('error', () => {
-        reject(new Error('Network error - unable to reach backend server'));
-      });
-
-      xhr.addEventListener('abort', () => {
-        reject(new Error('Upload cancelled'));
-      });
-
-      xhr.open('POST', `${BACKEND_URL}/parse`);
-      xhr.setRequestHeader('X-API-Key', BACKEND_API_KEY);
-      xhr.send(formData);
-    });
+    if (result.status === 'success' && result.data) {
+      // Ensure progress reaches 100%
+      onProgress?.(100);
+      return {
+        ...result.data,
+        id: result.file_id || Math.random().toString(36).substr(2, 9),
+        uploadDate: new Date().toISOString(),
+        status: 'completed',
+        fileName: fileName,
+      };
+    } else {
+      throw new Error(result.detail || 'Failed to parse resume');
+    }
   } catch (error) {
     throw error instanceof Error ? error : new Error('Unknown error occurred');
   }
@@ -151,80 +154,40 @@ export const parseJobDescriptionViaBackend = async (
 ): Promise<any> => {
   try {
     if (isText) {
-      // Parse from text input
-      const response = await fetch(`${BACKEND_URL}/parse_jd?text=${encodeURIComponent(input)}`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': BACKEND_API_KEY,
-        },
-      });
+      // Parse from text input using fetch (no progress tracking needed for text)
+      const result = await postJSON<any>(
+        `${BACKEND_URL}/parse_jd?text=${encodeURIComponent(input)}`,
+        {},
+        { 'X-API-Key': BACKEND_API_KEY }
+      );
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to parse JD');
-      }
-
-      const result = await response.json();
       if (result.status === 'success') {
         return result.data;
       }
-      throw new Error('Invalid response from server');
+      throw new Error(result.detail || 'Failed to parse JD');
     } else {
-      // Parse from file input
+      // Parse from file input using httpClient for progress tracking
       const formData = new FormData();
 
       // Create a blob from file URI
       const fileResponse = await fetch(input);
       const blob = await fileResponse.blob();
 
-      formData.append('file', blob, fileName);
+      formData.append('file', blob, fileName || 'document');
 
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
+      const result = await postFormData<any>(
+        `${BACKEND_URL}/parse_jd`,
+        formData,
+        { 'X-API-Key': BACKEND_API_KEY },
+        onProgress
+      );
 
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const percentComplete = (e.loaded / e.total) * 100;
-            onProgress?.(Math.min(percentComplete, 95));
-          }
-        });
-
-        xhr.addEventListener('load', () => {
-          if (xhr.status === 200) {
-            try {
-              const result = JSON.parse(xhr.responseText);
-              if (result.status === 'success' && result.data) {
-                onProgress?.(100);
-                resolve(result.data);
-              } else {
-                reject(new Error(result.detail || 'Failed to parse JD'));
-              }
-            } catch (error) {
-              reject(error instanceof Error ? error : new Error('Failed to parse server response'));
-            }
-          } else {
-            try {
-              const errorResponse = JSON.parse(xhr.responseText);
-              reject(new Error(errorResponse.detail || `Server error: ${xhr.status}`));
-            } catch {
-              reject(new Error(`Server error: ${xhr.status}`));
-            }
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          reject(new Error('Network error - unable to reach backend server'));
-        });
-
-        xhr.addEventListener('abort', () => {
-          reject(new Error('Upload cancelled'));
-        });
-
-        xhr.open('POST', `${BACKEND_URL}/parse_jd`);
-        xhr.setRequestHeader('X-API-Key', BACKEND_API_KEY);
-        xhr.send(formData);
-      });
+      if (result.status === 'success' && result.data) {
+        onProgress?.(100);
+        return result.data;
+      } else {
+        throw new Error(result.detail || 'Failed to parse JD');
+      }
     }
   } catch (error) {
     throw error instanceof Error ? error : new Error('Unknown error occurred');
@@ -237,9 +200,9 @@ export const parseJobDescriptionViaBackend = async (
  * @param resumeList - List of parsed resumes
  */
 export const rankCandidatesViaBackend = async (
-  jdData: any,
-  resumeList: any[]
-): Promise<any> => {
+  jdData: JobDescription,
+  resumeList: ResumeData[]
+): Promise<RankingResult> => {
   try {
     const response = await fetch(`${BACKEND_URL}/rank_candidates`, {
       method: 'POST',

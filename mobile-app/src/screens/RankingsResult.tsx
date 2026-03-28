@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   TouchableOpacity,
   StyleSheet,
@@ -9,6 +8,8 @@ import {
   Alert,
 } from 'react-native';
 import { RankingSession, RankingResult } from '../types/resume';
+import { THEME } from '../theme';
+import { ThemedText } from '../components/ThemedText';
 
 interface RankingsResultProps {
   session: RankingSession;
@@ -51,22 +52,24 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
         >
           <View style={styles.rankAndScore}>
             <View style={[styles.rankBadge, { backgroundColor: scoreColor }]}>
-              <Text style={styles.rankText}>#{index + 1}</Text>
+              <ThemedText variant="button" color="#fff">#{index + 1}</ThemedText>
             </View>
 
             <View style={styles.nameAndScore}>
-              <Text style={styles.candidateName} numberOfLines={1}>
+              <ThemedText variant="bodyBold" numberOfLines={1}>
                 {item.candidate_name}
-              </Text>
-              <Text style={styles.scoreLabel}>{getScoreLabel(item.overall_score)}</Text>
+              </ThemedText>
+              <ThemedText variant="caption" color={THEME.colors.textMuted}>
+                {getScoreLabel(item.overall_score)}
+              </ThemedText>
             </View>
           </View>
 
           <View style={styles.scoreCircle}>
             <View style={[styles.scorePercentageBg, { borderColor: scoreColor }]}>
-              <Text style={[styles.scorePercentage, { color: scoreColor }]}>
+              <ThemedText variant="h4" color={scoreColor}>
                 {item.score_percentage}%
-              </Text>
+              </ThemedText>
             </View>
           </View>
         </TouchableOpacity>
@@ -74,29 +77,31 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
         {/* Score Breakdown (Quick View) */}
         <View style={styles.scoreBreakdownRow}>
           <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemLabel}>Skills</Text>
-            <Text style={styles.scoreItemValue}>{Math.round(item.scores.skills * 100)}%</Text>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>Skills</ThemedText>
+            <ThemedText variant="bodyBold">{Math.round(item.scores.skills * 100)}%</ThemedText>
           </View>
 
           <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemLabel}>Experience</Text>
-            <Text style={styles.scoreItemValue}>{Math.round(item.scores.experience * 100)}%</Text>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>Experience</ThemedText>
+            <ThemedText variant="bodyBold">{Math.round(item.scores.experience * 100)}%</ThemedText>
           </View>
 
           <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemLabel}>Job Title</Text>
-            <Text style={styles.scoreItemValue}>{Math.round(item.scores.job_title * 100)}%</Text>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>Job Title</ThemedText>
+            <ThemedText variant="bodyBold">{Math.round(item.scores.job_title * 100)}%</ThemedText>
           </View>
 
           <View style={styles.scoreItem}>
-            <Text style={styles.scoreItemLabel}>Education</Text>
-            <Text style={styles.scoreItemValue}>{Math.round(item.scores.education * 100)}%</Text>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>Education</ThemedText>
+            <ThemedText variant="bodyBold">{Math.round(item.scores.education * 100)}%</ThemedText>
           </View>
         </View>
 
         {/* Expand Icon */}
         <View style={styles.expandToggle}>
-          <Text style={styles.expandIcon}>{isExpanded ? '▲' : '▼'}</Text>
+          <ThemedText variant="caption" color={THEME.colors.textMuted}>
+            {isExpanded ? '▲' : '▼'}
+          </ThemedText>
         </View>
 
         {/* Expanded Details */}
@@ -105,11 +110,11 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
             {/* Matched Skills */}
             {item.details.matched_skills.length > 0 && (
               <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>✓ Matched Skills</Text>
+                <ThemedText variant="bodyBold">✓ Matched Skills</ThemedText>
                 <View style={styles.skillsContainer}>
                   {item.details.matched_skills.map((skill, idx) => (
                     <View key={idx} style={styles.matchedSkill}>
-                      <Text style={styles.matchedSkillText}>{skill}</Text>
+                      <ThemedText variant="caption" color={THEME.colors.success}>{skill}</ThemedText>
                     </View>
                   ))}
                 </View>
@@ -119,11 +124,11 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
             {/* Missing Skills */}
             {item.details.missing_skills.length > 0 && (
               <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>✗ Missing Skills</Text>
+                <ThemedText variant="bodyBold">✗ Missing Skills</ThemedText>
                 <View style={styles.skillsContainer}>
                   {item.details.missing_skills.map((skill, idx) => (
                     <View key={idx} style={styles.missingSkill}>
-                      <Text style={styles.missingSkillText}>{skill}</Text>
+                      <ThemedText variant="caption" color={THEME.colors.danger}>{skill}</ThemedText>
                     </View>
                   ))}
                 </View>
@@ -132,34 +137,39 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
 
             {/* Experience */}
             <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>💼 Experience</Text>
-              <Text style={styles.detailText}>
-                Candidate has <Text style={styles.detailBold}>{item.details.candidate_experience_years} years</Text> of experience
-              </Text>
-              <Text style={styles.detailText}>
-                Position requires <Text style={styles.detailBold}>{item.details.jd_required_experience_years}+ years</Text>
-              </Text>
+              <ThemedText variant="bodyBold">💼 Experience</ThemedText>
+              <ThemedText variant="body" color={THEME.colors.text}>
+                Candidate has{' '}
+                <ThemedText variant="bodyBold" color={THEME.colors.text}>{item.details.candidate_experience_years} years</ThemedText>
+                {' '}of experience
+              </ThemedText>
+              <ThemedText variant="body" color={THEME.colors.text}>
+                Position requires{' '}
+                <ThemedText variant="bodyBold" color={THEME.colors.text}>{item.details.jd_required_experience_years}+ years</ThemedText>
+              </ThemedText>
             </View>
 
             {/* Education */}
             <View style={styles.detailSection}>
-              <Text style={styles.detailSectionTitle}>🎓 Education</Text>
-              <Text style={styles.detailText}>
-                Candidate: <Text style={styles.detailBold}>{item.details.candidate_education}</Text>
-              </Text>
-              <Text style={styles.detailText}>
-                Required: <Text style={styles.detailBold}>{item.details.jd_required_education}</Text>
-              </Text>
+              <ThemedText variant="bodyBold">🎓 Education</ThemedText>
+              <ThemedText variant="body" color={THEME.colors.text}>
+                Candidate:{' '}
+                <ThemedText variant="bodyBold" color={THEME.colors.text}>{item.details.candidate_education}</ThemedText>
+              </ThemedText>
+              <ThemedText variant="body" color={THEME.colors.text}>
+                Required:{' '}
+                <ThemedText variant="bodyBold" color={THEME.colors.text}>{item.details.jd_required_education}</ThemedText>
+              </ThemedText>
             </View>
 
             {/* Job Titles */}
             {item.details.candidate_job_titles.length > 0 && (
               <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>📌 Previous Roles</Text>
+                <ThemedText variant="bodyBold">📌 Previous Roles</ThemedText>
                 {item.details.candidate_job_titles.map((title, idx) => (
-                  <Text key={idx} style={styles.detailText}>
+                  <ThemedText key={idx} variant="body" color={THEME.colors.text}>
                     • {title}
-                  </Text>
+                  </ThemedText>
                 ))}
               </View>
             )}
@@ -167,16 +177,20 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
             {/* AI Reasoning */}
             {item.reasoning && (
               <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>💡 Assessment</Text>
-                <Text style={styles.reasoningText}>{item.reasoning}</Text>
+                <ThemedText variant="bodyBold">💡 Assessment</ThemedText>
+                <ThemedText variant="body" color={THEME.colors.text} style={{ fontStyle: 'italic' }}>
+                  {item.reasoning}
+                </ThemedText>
               </View>
             )}
 
             {/* Error (if any) */}
             {item.error && (
               <View style={styles.detailSection}>
-                <Text style={styles.detailSectionTitle}>⚠️ Note</Text>
-                <Text style={styles.errorText}>{item.error}</Text>
+                <ThemedText variant="bodyBold">⚠️ Note</ThemedText>
+                <ThemedText variant="body" color={THEME.colors.danger}>
+                  {item.error}
+                </ThemedText>
               </View>
             )}
           </View>
@@ -190,44 +204,58 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
       <ScrollView style={styles.scrollContainer}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Ranking Results</Text>
-          <Text style={styles.subtitle}>{session.jd.job_title}</Text>
+          <ThemedText variant="h2" style={{ marginBottom: THEME.spacing.xs }}>
+            Ranking Results
+          </ThemedText>
+          <ThemedText variant="body" color={THEME.colors.textMuted}>
+            {session.jd.job_title}
+          </ThemedText>
         </View>
 
         {/* Summary Stats */}
         <View style={styles.summaryStats}>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{session.rankings.length}</Text>
-            <Text style={styles.statLabel}>Candidates</Text>
+            <ThemedText variant="h4" color={THEME.colors.primary}>
+              {session.rankings.length}
+            </ThemedText>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>
+              Candidates
+            </ThemedText>
           </View>
 
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>
+            <ThemedText variant="h4" color={THEME.colors.primary}>
               {Math.round(
                 (session.rankings.reduce((sum, r) => sum + r.overall_score, 0) /
                   session.rankings.length) *
                   100
               )}%
-            </Text>
-            <Text style={styles.statLabel}>Avg Score</Text>
+            </ThemedText>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>
+              Avg Score
+            </ThemedText>
           </View>
 
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>
+            <ThemedText variant="h4" color={THEME.colors.primary}>
               {(session.processingTime / 1000).toFixed(1)}s
-            </Text>
-            <Text style={styles.statLabel}>Time</Text>
+            </ThemedText>
+            <ThemedText variant="caption" color={THEME.colors.textMuted}>
+              Time
+            </ThemedText>
           </View>
         </View>
 
         {/* Top Candidate Highlight */}
         {session.rankings.length > 0 && (
           <View style={styles.topCandidateBox}>
-            <Text style={styles.topCandidateLabel}>🏆 Best Fit</Text>
-            <Text style={styles.topCandidateName}>{session.rankings[0].candidate_name}</Text>
-            <Text style={styles.topCandidateScore}>
+            <ThemedText variant="caption" color="#856404">🏆 Best Fit</ThemedText>
+            <ThemedText variant="h4" color="#333" style={{ marginBottom: THEME.spacing.xs }}>
+              {session.rankings[0].candidate_name}
+            </ThemedText>
+            <ThemedText variant="body" color={THEME.colors.text}>
               {session.rankings[0].score_percentage}% Match
-            </Text>
+            </ThemedText>
           </View>
         )}
 
@@ -248,7 +276,7 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
       {/* Footer Button */}
       <View style={styles.footerContainer}>
         <TouchableOpacity style={styles.newSessionButton} onPress={onNewSession}>
-          <Text style={styles.newSessionButtonText}>+ New Ranking Session</Text>
+          <ThemedText variant="button" color="#fff">+ New Ranking Session</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
@@ -258,92 +286,55 @@ const RankingsResult: React.FC<RankingsResultProps> = ({ session, onNewSession }
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: THEME.colors.background,
   },
   scrollContainer: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: THEME.spacing.lg,
+    paddingTop: THEME.spacing.lg,
   },
   header: {
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
+    marginBottom: THEME.spacing.lg,
   },
   summaryStats: {
     flexDirection: 'row',
-    marginBottom: 20,
-    gap: 12,
+    marginBottom: THEME.spacing.lg,
+    gap: THEME.spacing.sm,
   },
   statBox: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingVertical: 12,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.borderRadius.md,
+    paddingVertical: THEME.spacing.md,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#999',
+    borderColor: THEME.colors.border,
   },
   topCandidateBox: {
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 20,
+    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+    borderRadius: THEME.borderRadius.md,
+    padding: THEME.spacing.lg,
+    marginBottom: THEME.spacing.lg,
     borderLeftWidth: 4,
     borderLeftColor: '#ffc107',
   },
-  topCandidateLabel: {
-    fontSize: 14,
-    color: '#856404',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  topCandidateName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  topCandidateScore: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '500',
-  },
   listContainer: {
-    marginBottom: 20,
+    marginBottom: THEME.spacing.lg,
   },
   candidateCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginBottom: 12,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.borderRadius.md,
+    marginBottom: THEME.spacing.md,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: THEME.colors.border,
     overflow: 'hidden',
   },
   candidateHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.md,
   },
   rankAndScore: {
     flexDirection: 'row',
@@ -356,25 +347,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-  },
-  rankText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
+    marginRight: THEME.spacing.md,
   },
   nameAndScore: {
     flex: 1,
-  },
-  candidateName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  scoreLabel: {
-    fontSize: 12,
-    color: '#666',
   },
   scoreCircle: {
     justifyContent: 'center',
@@ -388,130 +364,72 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scorePercentage: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
   scoreBreakdownRow: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#f9f9f9',
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.sm,
+    backgroundColor: THEME.colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: THEME.colors.border,
   },
   scoreItem: {
     flex: 1,
     alignItems: 'center',
   },
-  scoreItemLabel: {
-    fontSize: 11,
-    color: '#999',
-    marginBottom: 2,
-  },
-  scoreItemValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-  },
   expandToggle: {
-    paddingVertical: 8,
+    paddingVertical: THEME.spacing.sm,
     alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-  },
-  expandIcon: {
-    color: '#999',
-    fontSize: 12,
+    backgroundColor: THEME.colors.background,
   },
   expandedDetails: {
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#fafafa',
+    borderTopColor: THEME.colors.border,
+    paddingHorizontal: THEME.spacing.md,
+    paddingVertical: THEME.spacing.md,
+    backgroundColor: THEME.colors.background,
   },
   detailSection: {
-    marginBottom: 14,
-  },
-  detailSectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  detailText: {
-    fontSize: 12,
-    color: '#666',
-    lineHeight: 18,
-    marginBottom: 4,
-  },
-  detailBold: {
-    fontWeight: 'bold',
-    color: '#333',
+    marginBottom: THEME.spacing.md,
   },
   skillsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: THEME.spacing.xs,
+    marginTop: THEME.spacing.xs,
   },
   matchedSkill: {
-    backgroundColor: '#e8f5e9',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    paddingHorizontal: THEME.spacing.sm,
+    paddingVertical: THEME.spacing.xs,
+    borderRadius: THEME.borderRadius.full,
     borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  matchedSkillText: {
-    fontSize: 11,
-    color: '#2e7d32',
-    fontWeight: '500',
+    borderColor: THEME.colors.primary,
   },
   missingSkill: {
-    backgroundColor: '#ffebee',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: 'rgba(244, 67, 54, 0.1)',
+    paddingHorizontal: THEME.spacing.sm,
+    paddingVertical: THEME.spacing.xs,
+    borderRadius: THEME.borderRadius.full,
     borderWidth: 1,
-    borderColor: '#f44336',
-  },
-  missingSkillText: {
-    fontSize: 11,
-    color: '#c62828',
-    fontWeight: '500',
-  },
-  reasoningText: {
-    fontSize: 12,
-    color: '#666',
-    lineHeight: 18,
-    fontStyle: 'italic',
-  },
-  errorText: {
-    fontSize: 12,
-    color: '#d32f2f',
-    lineHeight: 18,
+    borderColor: THEME.colors.danger,
   },
   listSeparator: {
     height: 0,
   },
   footerContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 12,
-    backgroundColor: '#f5f5f5',
+    paddingHorizontal: THEME.spacing.lg,
+    paddingBottom: THEME.spacing.lg,
+    paddingTop: THEME.spacing.md,
+    backgroundColor: THEME.colors.background,
     borderTopWidth: 1,
-    borderTopColor: '#ddd',
+    borderTopColor: THEME.colors.border,
   },
   newSessionButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 14,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.primary,
+    paddingVertical: THEME.spacing.md,
+    borderRadius: THEME.borderRadius.md,
     alignItems: 'center',
-  },
-  newSessionButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    minHeight: 44,
   },
 });
 
