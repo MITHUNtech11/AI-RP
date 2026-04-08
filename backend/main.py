@@ -16,8 +16,10 @@ import traceback
 import uuid
 import logging
 
-from .config.settings import ALLOWED_FORMATS, MAX_FILE_SIZE_MB, REQUIRE_AUTH, RATE_LIMIT_PARSE, RATE_LIMIT_BATCH, RATE_LIMIT_TEXT
+from .config.settings import ALLOWED_FORMATS, MAX_FILE_SIZE_MB, REQUIRE_AUTH, RATE_LIMIT_PARSE, RATE_LIMIT_BATCH, RATE_LIMIT_TEXT, APP_NAME, APP_VERSION
 from .config.auth import verify_api_key
+from .config.database import init_db
+from .routes import auth, users, resumes, job_descriptions, activity, comparisons, uploads
 from .services.converter import (
     convert_to_png_list,
     extract_text_from_docx_bytes,
@@ -114,9 +116,9 @@ class RankCandidatesRequest(BaseModel):
     resume_list: List[Dict[str, Any]]
 
 app = FastAPI(
-    title="Resume Parser API",
-    description="Convert and parse resumes (PDF/DOCX/Images/Text) to structured JSON",
-    version="2.0.0"
+    title=APP_NAME,
+    description="Convert and parse resumes (PDF/DOCX/Images/Text) to structured JSON with AI-powered recruitment features",
+    version=APP_VERSION
 )
 
 # Enable CORS
@@ -127,6 +129,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================
+# DATABASE INITIALIZATION
+# ============================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    try:
+        init_db()
+        logger.info("✓ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"✗ Database initialization failed: {str(e)}")
+
+# ============================================
+# INCLUDE AUTHENTICATION & USER ROUTES
+# ============================================
+
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(resumes.router)
+app.include_router(job_descriptions.router)
+app.include_router(activity.router)
+app.include_router(comparisons.router)
+app.include_router(uploads.router)
+
 
 # ============================================
 # HEALTH CHECK ENDPOINT

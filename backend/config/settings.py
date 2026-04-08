@@ -28,3 +28,30 @@ RATE_LIMIT_TEXT = "10/minute"
 
 # Logging
 LOG_FILE = "processing_log.txt"
+
+# ============================================
+# AUTHENTICATION & JWT CONFIGURATION
+# ============================================
+
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+JWT_REFRESH_EXPIRATION_DAYS = int(os.getenv("JWT_REFRESH_EXPIRATION_DAYS", "7"))
+
+# ============================================
+# DATABASE CONFIGURATION
+# ============================================
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite:///./resume_parser.db"  # SQLite for development, override for production
+)
+
+# ============================================
+# APP SETTINGS
+# ============================================
+
+APP_NAME = "AI Resume Parser API"
+APP_VERSION = "2.1.0"
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
