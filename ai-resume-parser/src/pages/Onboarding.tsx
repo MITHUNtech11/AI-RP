@@ -46,7 +46,7 @@ export function Onboarding() {
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
-      setCurrentStep(prev => prev + 1);
+      setCurrentStep((prev: number) => prev + 1);
     } else {
       setIsAuthMode(true);
     }
@@ -55,6 +55,37 @@ export function Onboarding() {
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    
+    // Frontend validation
+    if (authType === 'signup') {
+      // Validate full name
+      if (!fullName || fullName.trim().length < 2) {
+        setAuthError('Full name must be at least 2 characters');
+        return;
+      }
+      if (fullName.trim().length > 100) {
+        setAuthError('Full name must not exceed 100 characters');
+        return;
+      }
+      
+      // Validate password
+      if (!password || password.length < 8) {
+        setAuthError('Password must be at least 8 characters');
+        return;
+      }
+      if (password.length > 100) {
+        setAuthError('Password must not exceed 100 characters');
+        return;
+      }
+    }
+    
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      setAuthError('Please enter a valid email address');
+      return;
+    }
+    
     setIsLoading(true);
 
     try {
@@ -124,6 +155,7 @@ export function Onboarding() {
                       className="pl-10 h-12 rounded-xl bg-[var(--color-card)] border-[var(--color-border)]" 
                     />
                   </div>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">At least 2 characters</p>
                 </div>
               )}
               
@@ -157,6 +189,7 @@ export function Onboarding() {
                     className="pl-10 h-12 rounded-xl bg-[var(--color-card)] border-[var(--color-border)]" 
                   />
                 </div>
+                <p className="text-xs text-[var(--color-muted-foreground)]">At least 8 characters</p>
               </div>
 
               <Button 

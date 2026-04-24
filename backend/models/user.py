@@ -1,5 +1,5 @@
 """User model"""
-from sqlalchemy import Column, String, DateTime, Boolean
+from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..config.database import Base
@@ -31,7 +31,7 @@ class UserPreferences(Base):
     __tablename__ = "user_preferences"
 
     id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, nullable=False, unique=True, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, unique=True, index=True)
     theme = Column(String, default="system")  # 'light', 'dark', 'system'
     notifications_enabled = Column(Boolean, default=True)
     language = Column(String, default="en")
