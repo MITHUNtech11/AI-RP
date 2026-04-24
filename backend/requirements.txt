@@ -1,0 +1,38 @@
+# Backend Dependencies for Resume Parser API
+# Python 3.8+
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Rate Limiting
+slowapi==0.1.9
+
+# File Processing
+python-multipart==0.0.6
+docx2pdf==0.1.8
+python-docx==0.8.11
+Pillow>=11.0.0
+PyMuPDF==1.23.7
+
+# AI/ML & API
+requests==2.31.0
+python-dotenv==1.0.0
+
+# Database & ORM
+sqlalchemy==2.0.23
+alembic==1.12.1
+psycopg2-binary==2.9.9
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.1
+pydantic[email]==2.5.0
+
+# JWT & Encoding
+PyJWT==2.8.1
+cryptography==41.0.7
+
+# Utilities
+# Add any other dependencies as needed

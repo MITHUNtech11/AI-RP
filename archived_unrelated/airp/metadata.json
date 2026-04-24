@@ -1,0 +1,5 @@
+{
+  "name": "AI Resume Parser",
+  "description": "A mobile-first AI-powered resume parser that extracts structured data from documents using Gemini.",
+  "requestFramePermissions": []
+}
