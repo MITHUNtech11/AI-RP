@@ -143,7 +143,13 @@ export function History() {
     (educationFilter !== 'All' ? 1 : 0);
 
   return (
-    <div className="pb-20 min-h-screen bg-[var(--color-background)] font-sans">
+    <motion.div 
+      className="pb-20 min-h-screen bg-[var(--color-background)] font-sans"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar 
         title="Candidate History" 
         actions={
@@ -454,6 +460,6 @@ export function History() {
         }}
         onCancel={() => setItemsToDelete([])}
       />
-    </div>
+    </motion.div>
   );
 }

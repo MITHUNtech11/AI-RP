@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'motion/react';
 import { ResumeProvider, useResume } from './context/ResumeContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Onboarding } from './pages/Onboarding';
@@ -19,6 +20,7 @@ import { BottomNav } from './components/layout/BottomNav';
 
 function AppContent() {
   const { isOnboardingComplete } = useResume();
+  const location = useLocation();
 
   if (!isOnboardingComplete) {
     return <Onboarding />;
@@ -26,17 +28,19 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] text-[var(--color-foreground)] pb-16 font-sans">
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/upload" element={<Upload />} />
-        <Route path="/processing" element={<Processing />} />
-        <Route path="/result/:id" element={<Result />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/compare" element={<Compare />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AnimatePresence mode="wait">
+        <Routes key={location.pathname}>
+          <Route path="/" element={<Home />} />
+          <Route path="/upload" element={<Upload />} />
+          <Route path="/processing" element={<Processing />} />
+          <Route path="/result/:id" element={<Result />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/compare" element={<Compare />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AnimatePresence>
       <BottomNav />
     </div>
   );

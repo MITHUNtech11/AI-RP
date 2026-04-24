@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { TopBar } from '../components/layout/TopBar';
 import { Save, Download, Trash2, Plus, X, CheckCircle2, XCircle, AlertTriangle, MapPin, Mail, Phone, ExternalLink, Briefcase, GraduationCap, Award, FileText, Loader2 } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { motion } from 'motion/react';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
 
 export function Result() {
@@ -94,7 +95,13 @@ export function Result() {
   const scoreColors = resume.hrEvaluation ? getScoreColor(resume.hrEvaluation.matchScore) : null;
 
   return (
-    <div className="pb-24 min-h-screen bg-[var(--color-background)] font-sans">
+    <motion.div 
+      className="pb-24 min-h-screen bg-[var(--color-background)] font-sans"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar 
         title="Candidate Profile" 
         showBack 
@@ -412,6 +419,6 @@ export function Result() {
         }}
         onCancel={() => setIsDeleteModalOpen(false)}
       />
-    </div>
+    </motion.div>
   );
 }

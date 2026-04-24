@@ -106,7 +106,13 @@ export function Upload() {
   };
 
   return (
-    <div className="pb-20 min-h-screen bg-[var(--color-background)] font-sans">
+    <motion.div 
+      className="pb-20 min-h-screen bg-[var(--color-background)] font-sans"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar title="Upload Resume(s)" showBack />
 
       <div className="p-5 max-w-md mx-auto space-y-6 relative">
@@ -266,6 +272,6 @@ export function Upload() {
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

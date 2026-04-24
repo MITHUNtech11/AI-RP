@@ -80,7 +80,13 @@ export function Processing() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center space-y-6 bg-[var(--color-background)] font-sans">
+      <motion.div 
+        className="min-h-screen flex flex-col items-center justify-center p-6 text-center space-y-6 bg-[var(--color-background)] font-sans"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        transition={{ duration: 0.4 }}
+      >
         <motion.div 
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -98,14 +104,20 @@ export function Processing() {
             <RefreshCw className="mr-2 h-4 w-4" /> Retry
           </Button>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   const progressPercentage = totalFiles > 0 ? (processedCount / totalFiles) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans">
+    <motion.div 
+      className="min-h-screen bg-[var(--color-background)] font-sans"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar title="Processing" />
       <div className="flex flex-col items-center justify-center h-[calc(100vh-56px)] space-y-10 p-6 text-center">
         <div className="relative">
@@ -143,6 +155,6 @@ export function Processing() {
           />
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

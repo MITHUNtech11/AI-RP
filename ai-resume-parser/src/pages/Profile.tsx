@@ -2,13 +2,20 @@ import React from 'react';
 import { User, Settings as SettingsIcon } from 'lucide-react';
 import { TopBar } from '../components/layout/TopBar';
 import { Button } from '../components/ui/button';
+import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 
 export function Profile() {
   const navigate = useNavigate();
 
   return (
-    <div className="pb-20 min-h-screen bg-[var(--color-background)] font-sans">
+    <motion.div 
+      className="pb-20 min-h-screen bg-[var(--color-background)] font-sans"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar 
         title="Profile" 
         actions={
@@ -76,6 +83,6 @@ export function Profile() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

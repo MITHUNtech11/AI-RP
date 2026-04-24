@@ -46,7 +46,13 @@ export function Home() {
   };
 
   return (
-    <div className="pb-20 bg-[var(--color-background)] min-h-screen">
+    <motion.div 
+      className="pb-20 bg-[var(--color-background)] min-h-screen"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.4 }}
+    >
       <TopBar title="Overview" />
       
       <div className="p-5 space-y-6 max-w-md mx-auto">
@@ -232,6 +238,6 @@ export function Home() {
         onConfirm={() => setIsAlertOpen(false)}
         onCancel={() => setIsAlertOpen(false)}
       />
-    </div>
+    </motion.div>
   );
 }

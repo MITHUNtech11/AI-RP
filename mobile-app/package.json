@@ -9,9 +9,11 @@
     "web": "npx expo start --web"
   },
   "dependencies": {
-    "ansi-escapes": "^6.2.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
-    "expo": "~54.0.0",
+    "@types/react-native": "^0.72.8",
+    "ansi-escapes": "^6.2.0",
+    "babel-preset-expo": "~11.0.0",
+    "expo": "^46.0.21",
     "expo-document-picker": "~14.0.0",
     "expo-file-system": "~17.0.0",
     "expo-image-picker": "~17.0.0",
@@ -21,13 +23,12 @@
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-svg": "^14.0.0",
-    "react-native-web": "~0.21.0",
-    "babel-preset-expo": "~11.0.0"
+    "react-native-web": "~0.21.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.0.0",
     "@types/react": "~19.1.0",
-    "typescript": "~5.9.2",
-    "@babel/core": "^7.0.0"
+    "typescript": "~5.9.2"
   },
   "private": true
 }
