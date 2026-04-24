@@ -7,7 +7,6 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { TopBar } from '../components/layout/TopBar';
 import { ConfirmModal } from '../components/ui/ConfirmModal';
-import { extractTextFromFile } from '../utils/fileParser';
 
 export function Home() {
   const { resumes, jobDescription, setJobDescription } = useResume();
@@ -30,6 +29,8 @@ export function Home() {
 
     setIsExtracting(true);
     try {
+      // Lazy-load heavy document parsers only when a JD file is selected.
+      const { extractTextFromFile } = await import('../utils/fileParser');
       const text = await extractTextFromFile(file);
       setTempJd(text);
       setIsEditingJd(true);

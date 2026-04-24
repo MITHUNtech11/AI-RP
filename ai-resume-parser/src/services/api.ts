@@ -3,6 +3,8 @@
  * Uses the backend endpoints instead of client-side parsing
  */
 
+import type { ResumeData } from '../types/resume';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 /**
@@ -17,11 +19,15 @@ export interface BackendResumeResponse {
       fullName?: string;
       email?: string;
       phone?: string;
+      location?: string;
+      linkedin?: string;
+      website?: string;
       [key: string]: any;
     };
     skills?: string[];
     experience?: any[];
     education?: any[];
+    languages?: any[];
     summary?: string;
     [key: string]: any;
   };
@@ -33,36 +39,37 @@ export interface BackendResumeResponse {
   updated_at: string;
 }
 
-export interface ResumeData {
-  id?: string;
-  fileName: string;
-  personalInfo: {
-    fullName: string;
-    email: string;
-    phone: string;
-  };
-  summary: string;
-  skills: string[];
-  experience: Array<{
-    jobTitle: string;
-    company: string;
-    duration: string;
-    description?: string;
-  }>;
-  education: Array<{
-    degree: string;
-    major: string;
-    university: string;
-  }>;
-  match_score?: number;
-  recommendation?: string;
-  hr_notes?: string;
-}
-
 interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+type Recommendation = NonNullable<ResumeData['hrEvaluation']>['recommendation'];
+type Proficiency = ResumeData['languages'][number]['proficiency'];
+
+function normalizeRecommendation(value?: string): Recommendation {
+  switch (value) {
+    case 'Strong Hire':
+    case 'Hire':
+    case 'Hold':
+    case 'Reject':
+      return value;
+    default:
+      return 'Hold';
+  }
+}
+
+function normalizeProficiency(value?: string): Proficiency {
+  switch (value) {
+    case 'Native':
+    case 'Fluent':
+    case 'Intermediate':
+    case 'Basic':
+      return value;
+    default:
+      return 'Intermediate';
+  }
 }
 
 /**
@@ -70,35 +77,67 @@ interface ApiResponse<T> {
  */
 function mapBackendResumeToFrontend(backendResume: BackendResumeResponse): ResumeData {
   const json = backendResume.resume_json || {};
+  const hasEvaluation =
+    typeof backendResume.match_score === 'number' || !!backendResume.recommendation;
+  const evaluationSummary =
+    json.hrEvaluation?.evaluationSummary ||
+    json.evaluationSummary ||
+    json.summary ||
+    'Auto-generated evaluation.';
   
   return {
     id: backendResume.id,
     fileName: backendResume.file_name,
+    uploadDate: backendResume.upload_date || backendResume.created_at,
+    status: 'completed',
     personalInfo: {
       fullName: json.personalInfo?.fullName || 'Unknown',
       email: json.personalInfo?.email || '',
       phone: json.personalInfo?.phone || '',
+      location: json.personalInfo?.location || '',
+      linkedin: json.personalInfo?.linkedin || undefined,
+      website: json.personalInfo?.website || undefined,
     },
     summary: json.summary || '',
     skills: Array.isArray(json.skills) ? json.skills : [],
-    experience: Array.isArray(json.experience) 
+    experience: Array.isArray(json.experience)
       ? json.experience.map((exp: any) => ({
-          jobTitle: exp.title || exp.jobTitle || '',
+          id: exp.id || `${backendResume.id}-exp-${Math.random().toString(36).slice(2, 9)}`,
+          title: exp.title || exp.jobTitle || '',
           company: exp.company || '',
-          duration: exp.duration || `${exp.startDate} - ${exp.endDate}` || '',
+          startDate: exp.startDate || '',
+          endDate: exp.endDate || (exp.current ? 'Present' : ''),
           description: exp.description || '',
         }))
       : [],
     education: Array.isArray(json.education)
       ? json.education.map((edu: any) => ({
+          id: edu.id || `${backendResume.id}-edu-${Math.random().toString(36).slice(2, 9)}`,
           degree: edu.degree || '',
-          major: edu.major || edu.specialization || '',
-          university: edu.school || edu.university || '',
+          school: edu.school || edu.university || '',
+          graduationDate: edu.graduationDate || edu.year || '',
         }))
       : [],
-    match_score: backendResume.match_score,
-    recommendation: backendResume.recommendation,
-    hr_notes: backendResume.hr_notes,
+    languages: Array.isArray(json.languages)
+      ? json.languages.map((lang: any) => ({
+          language: typeof lang === 'string' ? lang : lang.language || '',
+          proficiency: normalizeProficiency(lang?.proficiency),
+        })).filter((lang: ResumeData['languages'][number]) => !!lang.language)
+      : [],
+    hrEvaluation: hasEvaluation
+      ? {
+          matchScore: backendResume.match_score ?? 0,
+          recommendation: normalizeRecommendation(backendResume.recommendation),
+          evaluationSummary,
+          matchingSkills: Array.isArray(json.hrEvaluation?.matchingSkills)
+            ? json.hrEvaluation.matchingSkills
+            : [],
+          missingSkills: Array.isArray(json.hrEvaluation?.missingSkills)
+            ? json.hrEvaluation.missingSkills
+            : [],
+        }
+      : undefined,
+    hrNotes: backendResume.hr_notes,
   };
 }
 
