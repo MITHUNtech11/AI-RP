@@ -156,6 +156,17 @@ app.include_router(comparisons.router)
 app.include_router(uploads.router)
 
 
+@app.get("/")
+async def root():
+    """Simple root endpoint so base URL checks don't return 404."""
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "docs": "/docs",
+        "health": "/health"
+    }
+
+
 # ============================================
 # HEALTH CHECK ENDPOINT
 # ============================================
