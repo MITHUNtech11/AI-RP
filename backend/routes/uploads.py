@@ -42,6 +42,17 @@ def _map_parsing_error(exc: Exception, fallback_message: str) -> HTTPException:
             detail="AI parser rate limit reached. Please retry in a minute."
         )
 
+    if (
+        "currently experiencing high demand" in message_lower
+        or "status\": \"unavailable\"" in message_lower
+        or "[503 unavailable]" in message_lower
+        or "service unavailable" in message_lower
+    ):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI parser is temporarily unavailable due to model load. Please retry shortly."
+        )
+
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=fallback_message
@@ -77,12 +88,18 @@ async def upload_and_parse_resume(
         parsing_time = time.time() - start_time
         
         # Save to database
-        resume = ResumeService.create_resume(
+        resume, save_error = ResumeService.create_resume(
             db,
             current_user.id,
             file.filename,
             parsed_data
         )
+
+        if save_error or not resume:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save parsed resume: {save_error or 'Unknown database error'}"
+            )
         
         return resume
     
