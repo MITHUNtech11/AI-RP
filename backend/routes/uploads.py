@@ -3,6 +3,7 @@ from fastapi import APIRouter, File, UploadFile, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 import time
+import logging
 
 from ..config.database import get_db
 from ..config.dependencies import get_current_user
@@ -16,6 +17,46 @@ router = APIRouter(
     tags=["file-uploads"],
     responses={401: {"description": "Unauthorized"}}
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _map_parsing_error(exc: Exception, fallback_message: str) -> HTTPException:
+    """Translate low-level parser/provider errors into concise API responses."""
+    message = str(exc)
+    message_lower = message.lower()
+
+    if (
+        "api_key_invalid" in message_lower
+        or "api key expired" in message_lower
+        or "gemini_api_key is not configured" in message_lower
+    ):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI parser configuration issue: GEMINI_API_KEY is missing, invalid, or expired. Update backend .env and restart the server."
+        )
+
+    if "rate limit" in message_lower or "code\": 429" in message_lower or "status code 429" in message_lower:
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="AI parser rate limit reached. Please retry in a minute."
+        )
+
+    if (
+        "currently experiencing high demand" in message_lower
+        or "status\": \"unavailable\"" in message_lower
+        or "[503 unavailable]" in message_lower
+        or "service unavailable" in message_lower
+    ):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI parser is temporarily unavailable due to model load. Please retry shortly."
+        )
+
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=fallback_message
+    )
 
 
 @router.post("/resume", response_model=ResumeResponse, status_code=201)
@@ -47,22 +88,26 @@ async def upload_and_parse_resume(
         parsing_time = time.time() - start_time
         
         # Save to database
-        resume = ResumeService.create_resume(
+        resume, save_error = ResumeService.create_resume(
             db,
             current_user.id,
             file.filename,
             parsed_data
         )
+
+        if save_error or not resume:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save parsed resume: {save_error or 'Unknown database error'}"
+            )
         
         return resume
     
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to parse resume: {str(e)}"
-        )
+        logger.exception("Resume parsing failed for %s", file.filename)
+        raise _map_parsing_error(e, "Failed to parse resume due to an internal parsing error.")
 
 
 @router.post("/batch", status_code=202)
@@ -125,10 +170,8 @@ async def batch_upload_resumes(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Batch processing failed: {str(e)}"
-        )
+        logger.exception("Batch resume processing failed")
+        raise _map_parsing_error(e, "Batch processing failed due to an internal parsing error.")
 
 
 @router.post("/cleanup")

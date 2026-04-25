@@ -126,7 +126,7 @@ class ParsingService:
         
         try:
             if ext == '.pdf':
-                return await ParsingService._parse_pdf(file_content, use_azure_vision)
+                return await ParsingService._parse_pdf(file_content, filename, use_azure_vision)
             elif ext in {'.docx', '.doc'}:
                 return await ParsingService._parse_docx(file_content)
             elif ext == '.txt':
@@ -140,10 +140,10 @@ class ParsingService:
             raise
     
     @staticmethod
-    async def _parse_pdf(file_content: bytes, use_azure: bool) -> Dict[str, Any]:
+    async def _parse_pdf(file_content: bytes, filename: str, use_azure: bool) -> Dict[str, Any]:
         """Parse PDF resume"""
         # Convert PDF to images
-        images = await convert_to_png_list(file_content)
+        images = convert_to_png_list(file_content, filename)
         
         if use_azure:
             # Use Azure Vision API
