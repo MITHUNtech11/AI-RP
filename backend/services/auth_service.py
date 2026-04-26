@@ -89,6 +89,13 @@ class TokenService:
                 return None
             return payload
         except JWTError as e:
+            # Distinguish expired tokens from other JWT errors for clearer messaging
+            err_str = str(e).lower()
+            if "signature has expired" in err_str or "token has expired" in err_str or "expired" in err_str:
+                logger.warning("Expired token provided")
+                # Return a sentinel payload flag so callers can surface an expired-specific message
+                return {"_expired": True}
+
             logger.warning(f"Invalid token: {str(e)}")
             return None
     
@@ -96,9 +103,14 @@ class TokenService:
     def get_user_id_from_token(token: str) -> Optional[str]:
         """Extract user_id from valid token"""
         payload = TokenService.verify_token(token)
-        if payload:
-            return payload.get("sub")
-        return None
+        if not payload:
+            return None
+
+        # Propagate expired sentinel
+        if isinstance(payload, dict) and payload.get("_expired"):
+            return None
+
+        return payload.get("sub")
 
 
 class AuthService:
@@ -192,10 +204,14 @@ class AuthService:
         Returns: (new_access_token, error_message)
         """
         payload = TokenService.verify_token(refresh_token)
-        
+
+        # Handle explicit expired token sentinel
+        if isinstance(payload, dict) and payload.get("_expired"):
+            return None, "Refresh token has expired. Please log in again."
+
         if not payload:
             return None, "Invalid or expired refresh token"
-        
+
         if payload.get("type") != "refresh":
             return None, "Invalid token type"
         
@@ -217,8 +233,13 @@ class AuthService:
         Get current user from token
         Returns: (user, error_message)
         """
+        # First, check for expired token sentinel so we can return a clearer message
+        raw_payload = TokenService.verify_token(token)
+        if isinstance(raw_payload, dict) and raw_payload.get("_expired"):
+            return None, "Token expired. Please refresh your access token and try again."
+
         user_id = TokenService.get_user_id_from_token(token)
-        
+
         if not user_id:
             return None, "Invalid or expired token"
         
