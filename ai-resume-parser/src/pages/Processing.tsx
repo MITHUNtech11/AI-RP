@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useResume } from '../context/ResumeContext';
 import { uploadAndParseResume } from '../services/api';
+import AuthHandler from '../services/authHandler';
 import { Loader2, AlertCircle, RefreshCw, FileSearch } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { TopBar } from '../components/layout/TopBar';
@@ -15,21 +16,28 @@ export function Processing() {
   const [status, setStatus] = useState('Initializing...');
   const [processedCount, setProcessedCount] = useState(0);
   const [totalFiles, setTotalFiles] = useState(1);
+  const processingStartedRef = useRef(false);
 
   const files = location.state?.files as {name: string, size: number, dataUrl: string}[] | undefined;
 
   useEffect(() => {
+    // Prevent duplicate processing in React Strict Mode
+    if (processingStartedRef.current) {
+      return;
+    }
+
     if (!files || files.length === 0) {
       navigate('/upload');
       return;
     }
 
+    processingStartedRef.current = true;
     setTotalFiles(files.length);
 
     const processFiles = async () => {
       try {
         // Get JWT token from localStorage
-        const token = localStorage.getItem('access_token');
+        let token = localStorage.getItem('access_token');
         if (!token) {
           throw new Error("Not authenticated. Please login first.");
         }
@@ -56,9 +64,35 @@ export function Processing() {
             
             setProcessedCount(i + 1);
           } catch (fileError: any) {
-            console.error(`Error processing ${file.name}:`, fileError);
-            // Continue with next file instead of stopping
-            setStatus(`Skipped ${file.name} due to error. Continuing...`);
+            const errorMsg = fileError.message || String(fileError);
+            
+            // Check if it's an authentication error
+            if (errorMsg.includes('Unauthorized') || errorMsg.includes('Invalid or expired token')) {
+              // Try to refresh token once
+              const newToken = await AuthHandler.refreshAccessToken();
+              if (newToken) {
+                token = newToken;
+                try {
+                  // Retry with new token
+                  const parsedData = await uploadAndParseResume(fileObj, token);
+                  parsedData.fileName = file.name || "Scanned Resume";
+                  await addResume(parsedData);
+                  lastParsedId = parsedData.id;
+                  setProcessedCount(i + 1);
+                } catch (retryError: any) {
+                  console.error(`Error processing ${file.name} after token refresh:`, retryError);
+                  setError('Your session has expired. Please login again.');
+                  return;
+                }
+              } else {
+                // Refresh failed, token will redirect to login automatically
+                return;
+              }
+            } else {
+              // Other error, continue with next file
+              console.error(`Error processing ${file.name}:`, fileError);
+              setStatus(`Skipped ${file.name} due to error. Continuing...`);
+            }
           }
         }
 
@@ -71,7 +105,14 @@ export function Processing() {
         }
       } catch (err: any) {
         console.error(err);
-        setError(err.message || "Failed to parse resume(s)");
+        const errorMsg = err.message || "Failed to parse resume(s)";
+        
+        // Check for auth errors and redirect
+        if (errorMsg.includes('Not authenticated') || errorMsg.includes('login')) {
+          AuthHandler.redirectToLogin(errorMsg);
+        } else {
+          setError(errorMsg);
+        }
       }
     };
 

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { useResume } from '../context/ResumeContext';
+import AuthHandler from '../services/authHandler';
 import { Scan, FileText, CheckCircle, ArrowRight, Mail, Lock, User, Sparkles, AlertCircle, Loader2 } from 'lucide-react';
 import { login, signup } from '../services/api';
 
@@ -97,8 +98,8 @@ export function Onboarding() {
         response = await login(email, password);
       }
 
-      // Store the JWT token in localStorage
-      localStorage.setItem('access_token', response.access_token);
+      // Store all tokens and user info using AuthHandler
+      AuthHandler.setTokens(response);
       
       // Mark onboarding as complete
       completeOnboarding();

@@ -4,6 +4,7 @@
  */
 
 import type { ResumeData } from '../types/resume';
+import AuthHandler from './authHandler';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -155,17 +156,41 @@ export async function uploadAndParseResume(
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/uploads/resume`, {
+    let token = accessToken;
+    let response = await fetch(`${API_BASE_URL}/uploads/resume`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: formData,
     });
 
+    // Handle 401 Unauthorized - try to refresh token
+    if (response.status === 401) {
+      const newToken = await AuthHandler.refreshAccessToken();
+      if (newToken) {
+        token = newToken;
+        // Retry with new token
+        response = await fetch(`${API_BASE_URL}/uploads/resume`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        });
+      }
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `Upload failed: ${response.status}`);
+      const errorMsg = error.detail || `Upload failed: ${response.status}`;
+      
+      // If still 401 after refresh attempt, redirect to login
+      if (response.status === 401) {
+        AuthHandler.handle401(response);
+      }
+      
+      throw new Error(errorMsg);
     }
 
     const backendData: BackendResumeResponse = await response.json();
