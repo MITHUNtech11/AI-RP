@@ -38,6 +38,11 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
 JWT_REFRESH_EXPIRATION_DAYS = int(os.getenv("JWT_REFRESH_EXPIRATION_DAYS", "7"))
 
+# Log JWT configuration on startup
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"JWT Configuration: ALGORITHM={JWT_ALGORITHM}, ACCESS_EXPIRATION={JWT_EXPIRATION_HOURS}h, REFRESH_EXPIRATION={JWT_REFRESH_EXPIRATION_DAYS}d")
+
 # ============================================
 # DATABASE CONFIGURATION
 # ============================================

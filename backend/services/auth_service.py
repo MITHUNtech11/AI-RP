@@ -1,8 +1,9 @@
 """Authentication services - password hashing, JWT generation, token validation"""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Tuple
 import uuid
 import logging
+import time
 
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -44,36 +45,49 @@ class TokenService:
         Create JWT access token
         Returns: (token, expiration_seconds)
         """
+        now = datetime.now(timezone.utc)
+        
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = now + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+            expire = now + timedelta(hours=JWT_EXPIRATION_HOURS)
+        
+        # Convert to Unix timestamps for JWT
+        iat_timestamp = int(now.timestamp())
+        exp_timestamp = int(expire.timestamp())
         
         to_encode = {
             "sub": user_id,
-            "exp": expire,
-            "iat": datetime.utcnow(),
+            "exp": exp_timestamp,
+            "iat": iat_timestamp,
             "type": "access"
         }
         
         encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-        expires_in = int((expire - datetime.utcnow()).total_seconds())
+        expires_in = int((expire - now).total_seconds())
         
+        logger.info(f"Access token created for user {user_id}, expires in {expires_in} seconds")
         return encoded_jwt, expires_in
     
     @staticmethod
     def create_refresh_token(user_id: str) -> str:
         """Create JWT refresh token"""
-        expire = datetime.utcnow() + timedelta(days=JWT_REFRESH_EXPIRATION_DAYS)
+        now = datetime.now(timezone.utc)
+        expire = now + timedelta(days=JWT_REFRESH_EXPIRATION_DAYS)
+        
+        # Convert to Unix timestamps for JWT
+        iat_timestamp = int(now.timestamp())
+        exp_timestamp = int(expire.timestamp())
         
         to_encode = {
             "sub": user_id,
-            "exp": expire,
-            "iat": datetime.utcnow(),
+            "exp": exp_timestamp,
+            "iat": iat_timestamp,
             "type": "refresh"
         }
         
         encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+        logger.info(f"Refresh token created for user {user_id}")
         return encoded_jwt
     
     @staticmethod
@@ -83,34 +97,33 @@ class TokenService:
         Returns None if invalid/expired
         """
         try:
-            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            payload = jwt.decode(
+                token, 
+                JWT_SECRET_KEY, 
+                algorithms=[JWT_ALGORITHM],
+                options={"verify_exp": True}
+            )
             user_id: str = payload.get("sub")
             if user_id is None:
+                logger.warning("Token payload missing 'sub' claim")
                 return None
+            logger.debug(f"Token verified for user {user_id}")
             return payload
         except JWTError as e:
-            # Distinguish expired tokens from other JWT errors for clearer messaging
-            err_str = str(e).lower()
-            if "signature has expired" in err_str or "token has expired" in err_str or "expired" in err_str:
-                logger.warning("Expired token provided")
-                # Return a sentinel payload flag so callers can surface an expired-specific message
-                return {"_expired": True}
-
-            logger.warning(f"Invalid token: {str(e)}")
+            error_msg = str(e)
+            logger.warning(f"Invalid token: {error_msg}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error during token verification: {str(e)}")
             return None
     
     @staticmethod
     def get_user_id_from_token(token: str) -> Optional[str]:
         """Extract user_id from valid token"""
         payload = TokenService.verify_token(token)
-        if not payload:
-            return None
-
-        # Propagate expired sentinel
-        if isinstance(payload, dict) and payload.get("_expired"):
-            return None
-
-        return payload.get("sub")
+        if payload:
+            return payload.get("sub")
+        return None
 
 
 class AuthService:
@@ -204,14 +217,10 @@ class AuthService:
         Returns: (new_access_token, error_message)
         """
         payload = TokenService.verify_token(refresh_token)
-
-        # Handle explicit expired token sentinel
-        if isinstance(payload, dict) and payload.get("_expired"):
-            return None, "Refresh token has expired. Please log in again."
-
+        
         if not payload:
             return None, "Invalid or expired refresh token"
-
+        
         if payload.get("type") != "refresh":
             return None, "Invalid token type"
         
@@ -233,13 +242,8 @@ class AuthService:
         Get current user from token
         Returns: (user, error_message)
         """
-        # First, check for expired token sentinel so we can return a clearer message
-        raw_payload = TokenService.verify_token(token)
-        if isinstance(raw_payload, dict) and raw_payload.get("_expired"):
-            return None, "Token expired. Please refresh your access token and try again."
-
         user_id = TokenService.get_user_id_from_token(token)
-
+        
         if not user_id:
             return None, "Invalid or expired token"
         

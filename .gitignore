@@ -7,3 +7,13 @@ node_modules
 .venv-1
 archived_unrelated
 tutorial
+.pytest_cache
+*.db
+test_*.py
+sample.py
+verify_backend.py
+*.pdf
+download.jpg
+*.log
+package-lock.json
+/package.json

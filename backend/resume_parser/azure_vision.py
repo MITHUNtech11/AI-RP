@@ -95,28 +95,71 @@ def _extract_json_from_response(response_text: str) -> dict:
 
 def extract_resume_json_multi_page(png_bytes_list: list) -> dict:
     """
-    Process multiple PNG pages and merge results
+    Process multiple PNG pages and merge results.
+    Smart strategy: Use page 1 if it has sufficient data, supplement with page 2 if needed.
+    Avoids processing unnecessary pages that don't contain resume info.
+    
     Returns merged JSON data
     """
+    import logging
+    logger = logging.getLogger(__name__)
     
-    all_results = []
+    if not png_bytes_list:
+        raise ValueError("No pages to process")
     
-    # Process each page
-    for page_num, png_bytes in enumerate(png_bytes_list, start=1):
-        result = _extract_from_single_page(png_bytes, page_num)
-        all_results.append(result)
+    # Process first page
+    logger.info(f"Extracting data from page 1 of {len(png_bytes_list)}")
+    result_page1 = _extract_from_single_page(png_bytes_list[0], 1)
     
-    # Merge all results
-    merged = _merge_resume_data(all_results)
+    # Check if page 1 has sufficient data
+    has_name = bool(result_page1.get('name') or (result_page1.get('first_name') and result_page1.get('last_name')))
+    has_email = bool(result_page1.get('email'))
+    has_skills = bool(result_page1.get('skills'))
+    has_employment = bool(result_page1.get('employment'))
     
-    return merged
+    page1_completeness = sum([has_name, has_email, has_skills, has_employment])
+    
+    # If page 1 is complete (has at least name + email), use it
+    if page1_completeness >= 2:  # Has name and at least one other field
+        logger.info(f"Page 1 has sufficient data (completeness: {page1_completeness}/4). Skipping additional pages.")
+        return result_page1
+    
+    # If page 1 is incomplete and we have more pages, try page 2
+    if len(png_bytes_list) > 1 and page1_completeness < 2:
+        logger.info(f"Page 1 incomplete (completeness: {page1_completeness}/4). Extracting data from page 2...")
+        result_page2 = _extract_from_single_page(png_bytes_list[1], 2)
+        
+        # Merge with page 2 to fill gaps
+        all_results = [result_page1, result_page2]
+        merged = _merge_resume_data(all_results)
+        logger.info(f"Merged data from pages 1-2")
+        return merged
+    
+    # Default: return page 1 even if incomplete
+    logger.info(f"Using page 1 as fallback (completeness: {page1_completeness}/4)")
+    return result_page1
 
 
 def _extract_from_single_page(png_bytes: bytes, page_num: int) -> dict:
     """Extract data from single PNG page using Gemini Vision API"""
+    import logging
+    logger = logging.getLogger(__name__)
     
-    # Use Gemini Vision to extract and parse resume from image
-    return extract_resume_from_image(png_bytes)
+    logger.info(f"Processing page {page_num}: {len(png_bytes)} bytes")
+    try:
+        # Use Gemini Vision to extract and parse resume from image
+        result = extract_resume_from_image(png_bytes)
+        
+        # Log what was extracted
+        name = result.get('name') or f"{result.get('first_name', '')} {result.get('last_name', '')}".strip()
+        skills_count = len(result.get('skills', []))
+        logger.info(f"Page {page_num} extraction: name={name}, skills={skills_count}, has_email={bool(result.get('email'))}")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error extracting page {page_num}: {str(e)}")
+        # Return empty dict on error so merge logic can skip it
+        return {}
 
 
 def _merge_resume_data(results_list: list) -> dict:

@@ -15,6 +15,114 @@ from ..services.converter import convert_to_png_list, extract_text_from_docx_byt
 logger = logging.getLogger(__name__)
 
 
+def normalize_extracted_resume(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize raw extracted resume data from Gemini/Azure into frontend-expected format
+    
+    Converts from format:
+    {
+        "name": "John Doe",
+        "email": "john@example.com",
+        "employment": [...],
+        "qualifications": [...]
+    }
+    
+    To format:
+    {
+        "personalInfo": {
+            "fullName": "John Doe",
+            "email": "john@example.com",
+            ...
+        },
+        "experience": [...],
+        "education": [...],
+        ...
+    }
+    """
+    # Extract personal info
+    name = raw_data.get('name') or f"{raw_data.get('first_name', '')} {raw_data.get('last_name', '')}".strip() or 'Unknown'
+    
+    # Build address/location
+    address_parts = []
+    address = raw_data.get('address', {})
+    if isinstance(address, dict):
+        if address.get('district'):
+            address_parts.append(address.get('district'))
+        if address.get('state'):
+            address_parts.append(address.get('state'))
+        if address.get('country'):
+            address_parts.append(address.get('country'))
+    location = ', '.join(filter(None, address_parts)) or ''
+    
+    # Normalize experience
+    experience = []
+    for emp in raw_data.get('employment', []):
+        if isinstance(emp, dict):
+            experience.append({
+                'id': str(uuid.uuid4()),
+                'title': emp.get('designation', emp.get('job_title', 'Unknown Position')),
+                'company': emp.get('organization', emp.get('company', 'Unknown Company')),
+                'startDate': emp.get('start_date', emp.get('from_date', '')),
+                'endDate': emp.get('end_date', emp.get('to_date', 'Present' if emp.get('currently_working') else '')),
+                'description': emp.get('job_description', emp.get('description', ''))
+            })
+    
+    # Normalize education
+    education = []
+    for qual in raw_data.get('qualifications', []):
+        if isinstance(qual, dict):
+            education.append({
+                'id': str(uuid.uuid4()),
+                'degree': qual.get('qualification_name', qual.get('degree', 'Unknown')),
+                'school': qual.get('university', qual.get('institution', 'Unknown')),
+                'graduationDate': qual.get('passing_year', qual.get('completion_year', ''))
+            })
+    
+    # Normalize skills
+    skills = []
+    for skill in raw_data.get('skills', []):
+        if isinstance(skill, str):
+            skills.append(skill.strip())
+        elif isinstance(skill, dict):
+            skills.append(skill.get('skill_name', str(skill)))
+    
+    # Normalize languages
+    languages = []
+    for lang in raw_data.get('languages', []):
+        if isinstance(lang, dict):
+            languages.append({
+                'language': lang.get('language', 'Unknown'),
+                'proficiency': lang.get('proficiency', 'Intermediate')
+            })
+        elif isinstance(lang, str):
+            languages.append({
+                'language': lang,
+                'proficiency': 'Intermediate'
+            })
+    
+    # Normalize return format
+    normalized = {
+        'personalInfo': {
+            'fullName': name,
+            'email': raw_data.get('email', ''),
+            'phone': raw_data.get('phone', ''),
+            'location': location,
+            'linkedin': raw_data.get('linkedin', raw_data.get('linkedIn_url', '')),
+            'website': raw_data.get('website', raw_data.get('portfolio', ''))
+        },
+        'summary': raw_data.get('summary', raw_data.get('professional_summary', '')),
+        'skills': skills,
+        'experience': experience,
+        'education': education,
+        'languages': languages,
+        'hrNotes': None
+    }
+    
+    logger.info(f"Resume normalized: {normalized['personalInfo']['fullName']} with {len(skills)} skills, {len(experience)} experiences, {len(education)} educations")
+    
+    return normalized
+
+
 class FileService:
     """Service for file handling and storage"""
     
@@ -119,22 +227,28 @@ class ParsingService:
         use_azure_vision: bool = True
     ) -> Dict[str, Any]:
         """
-        Parse resume from uploaded file
-        Returns parsed resume JSON
+        Parse resume from uploaded file and normalize the output
+        Returns normalized resume JSON in frontend-expected format
         """
         ext = Path(filename).suffix.lower()
         
         try:
             if ext == '.pdf':
-                return await ParsingService._parse_pdf(file_content, filename, use_azure_vision)
+                raw_data = await ParsingService._parse_pdf(file_content, filename, use_azure_vision)
             elif ext in {'.docx', '.doc'}:
-                return await ParsingService._parse_docx(file_content)
+                raw_data = await ParsingService._parse_docx(file_content)
             elif ext == '.txt':
-                return await ParsingService._parse_text(file_content)
+                raw_data = await ParsingService._parse_text(file_content)
             elif ext in {'.png', '.jpg', '.jpeg'}:
-                return await ParsingService._parse_image(file_content)
+                raw_data = await ParsingService._parse_image(file_content)
             else:
                 raise ValueError(f"Unsupported file type: {ext}")
+            
+            # Normalize the extracted data to frontend format
+            normalized_data = normalize_extracted_resume(raw_data)
+            logger.info(f"Resume parsed and normalized: {filename}")
+            return normalized_data
+            
         except Exception as e:
             logger.error(f"Failed to parse {filename}: {str(e)}")
             raise
